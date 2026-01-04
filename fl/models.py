@@ -13,7 +13,11 @@ class FloatBatchNorm2d(nn.BatchNorm2d):
     def __init__(self, num_features, **kwargs):
         super().__init__(num_features, **kwargs)
         if self.num_batches_tracked is not None:
-            self.num_batches_tracked = self.num_batches_tracked.float()
+            self.register_buffer(
+                "num_batches_tracked",
+                torch.zeros(1, dtype=torch.float32),
+                persistent=True,
+            )
 
 
 class ConvNet(BaseModule):
