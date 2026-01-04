@@ -4,6 +4,19 @@ from secretflow.security.aggregation import SecureAggregator
 from .models import build_torch_model_def
 
 
+def _metric_value(metric):
+    total = metric.total
+    count = metric.count
+    if hasattr(total, "item"):
+        total = total.item()
+    if hasattr(count, "item"):
+        count = count.item()
+    count = int(count) if count is not None else 0
+    if count <= 0:
+        return 0.0
+    return float(total) / count
+
+
 def run_fedavg_or_fedprox(
     cfg,
     device_list,
@@ -70,5 +83,14 @@ def run_fedavg_or_fedprox(
             test_label,
             batch_size=batch_size,
         )
+        global_metrics, local_metrics = eval_res
+        global_out = {m.name: _metric_value(m) for m in global_metrics}
         print("\nFinal evaluation on test set:")
-        print(eval_res)
+        print(global_out)
+        if isinstance(local_metrics, dict):
+            local_out = {
+                party: {m.name: _metric_value(m) for m in metrics}
+                for party, metrics in local_metrics.items()
+            }
+            print("Per-client evaluation on test set:")
+            print(local_out)

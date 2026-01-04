@@ -21,7 +21,8 @@ def _set_named_params(model, names, params):
     param_map = dict(model.named_parameters())
     with torch.no_grad():
         for name, src in zip(names, params):
-            param_map[name].copy_(src)
+            param = param_map[name]
+            param.copy_(src.to(param.device))
 
 
 def _shared_param_names_fedbn(model):
@@ -72,11 +73,12 @@ def _build_optimizer(params, optimizer_name, lr, momentum):
     raise ValueError(f"Unsupported optimizer: {optimizer_name}")
 
 
-def _client_init(lr, seed, in_channels, num_classes, optimizer_name, momentum):
+def _client_init(lr, seed, in_channels, num_classes, optimizer_name, momentum, device):
     torch.manual_seed(seed)
     model = build_model(in_channels, num_classes)
+    model = model.to(device)
     optimizer = _build_optimizer(model.parameters(), optimizer_name, lr, momentum)
-    return {"model": model, "optimizer": optimizer}
+    return {"model": model, "optimizer": optimizer, "device": device}
 
 
 def _client_train_one_round(
@@ -92,6 +94,7 @@ def _client_train_one_round(
     momentum,
 ):
     model = state["model"]
+    device = state.get("device", "cpu")
     _set_named_params(model, shared_param_names, global_params)
     optimizer = _build_optimizer(model.parameters(), optimizer_name, lr, momentum)
 
@@ -102,6 +105,8 @@ def _client_train_one_round(
     model.train()
     for _ in range(epochs):
         for xb, yb in loader:
+            xb = xb.to(device)
+            yb = yb.to(device)
             optimizer.zero_grad()
             logits = model(xb)
             loss = F.cross_entropy(logits, yb)
@@ -114,6 +119,7 @@ def _client_train_one_round(
 
 def _client_evaluate(state, x, y, shared_param_names, global_params, batch_size):
     model = state["model"]
+    device = state.get("device", "cpu")
     _set_named_params(model, shared_param_names, global_params)
     model.eval()
 
@@ -126,6 +132,8 @@ def _client_evaluate(state, x, y, shared_param_names, global_params, batch_size)
     total = 0
     with torch.no_grad():
         for xb, yb in loader:
+            xb = xb.to(device)
+            yb = yb.to(device)
             logits = model(xb)
             loss = F.cross_entropy(logits, yb, reduction="sum")
             total_loss += loss.item()
@@ -173,6 +181,11 @@ def _run_personalized(
     optimizer_name = train_cfg.get("optimizer", "sgd")
     momentum = train_cfg.get("momentum", 0.0)
     seed = cfg["data"]["seed"]
+    device = train_cfg.get("device", "cpu")
+    if device == "auto":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    if device == "cuda" and not torch.cuda.is_available():
+        device = "cpu"
     eval_at_end = train_cfg.get("eval_at_end", True)
 
     torch.manual_seed(seed)
@@ -193,10 +206,10 @@ def _run_personalized(
     weight_map = _compute_client_weights(train_data, device_list)
 
     client_states = {}
-    for idx, device in enumerate(device_list):
+    for idx, device_obj in enumerate(device_list):
         client_seed = seed if strategy != "fedper" else seed + idx + 1
-        client_states[device] = device(_client_init)(
-            lr, client_seed, in_channels, num_classes, optimizer_name, momentum
+        client_states[device_obj] = device_obj(_client_init)(
+            lr, client_seed, in_channels, num_classes, optimizer_name, momentum, device
         )
 
     for r in range(rounds):
@@ -204,12 +217,12 @@ def _run_personalized(
         random.shuffle(active_devices)
 
         client_params = []
-        for device in active_devices:
-            state_obj = client_states[device]
-            data_obj = get_partition(train_data, device)
-            label_obj = get_partition(train_label, device)
+        for device_obj in active_devices:
+            state_obj = client_states[device_obj]
+            data_obj = get_partition(train_data, device_obj)
+            label_obj = get_partition(train_label, device_obj)
 
-            state_obj, params_obj = device(_client_train_one_round, num_returns=2)(
+            state_obj, params_obj = device_obj(_client_train_one_round, num_returns=2)(
                 state_obj,
                 data_obj,
                 label_obj,
@@ -221,10 +234,10 @@ def _run_personalized(
                 optimizer_name,
                 momentum,
             )
-            client_states[device] = state_obj
+            client_states[device_obj] = state_obj
             client_params.append(sf.reveal(params_obj))
 
-        round_weights = [weight_map[device] for device in active_devices]
+        round_weights = [weight_map[device_obj] for device_obj in active_devices]
         weight_sum = sum(round_weights)
         if weight_sum > 0:
             round_weights = [w / weight_sum for w in round_weights]
@@ -235,11 +248,11 @@ def _run_personalized(
 
     if eval_at_end:
         eval_stats = []
-        for device in device_list:
-            state_obj = client_states[device]
-            data_obj = get_partition(test_data, device)
-            label_obj = get_partition(test_label, device)
-            stats_obj = device(_client_evaluate)(
+        for device_obj in device_list:
+            state_obj = client_states[device_obj]
+            data_obj = get_partition(test_data, device_obj)
+            label_obj = get_partition(test_label, device_obj)
+            stats_obj = device_obj(_client_evaluate)(
                 state_obj,
                 data_obj,
                 label_obj,
@@ -257,6 +270,15 @@ def _run_personalized(
 
         print("\nFinal evaluation on test set:")
         print({"loss": avg_loss, "accuracy": avg_acc})
+        per_client = {}
+        for device_obj, stats in zip(device_list, eval_stats):
+            name = getattr(device_obj, "party", str(device_obj))
+            count = stats["total"]
+            loss = stats["loss"] / max(count, 1)
+            acc = stats["correct"] / max(count, 1)
+            per_client[name] = {"loss": loss, "accuracy": acc}
+        print("Per-client evaluation on test set:")
+        print(per_client)
 
 
 def run_fedbn(

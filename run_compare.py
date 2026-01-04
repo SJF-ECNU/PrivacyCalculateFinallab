@@ -27,6 +27,7 @@ def _parse_args():
     parser.add_argument("--lr", type=float)
     parser.add_argument("--optimizer", choices=["sgd", "adam"], default="sgd")
     parser.add_argument("--momentum", type=float, default=0.0)
+    parser.add_argument("--device", choices=["auto", "cpu", "cuda"])
     parser.add_argument("--seed", type=int)
     return parser.parse_args()
 
@@ -46,6 +47,8 @@ def _apply_overrides(cfg, args):
         cfg["train"]["lr"] = args.lr
     if args.seed is not None:
         cfg["data"]["seed"] = args.seed
+    if args.device is not None:
+        cfg["train"]["device"] = args.device
     cfg["train"]["optimizer"] = args.optimizer
     cfg["train"]["momentum"] = args.momentum
 
@@ -67,8 +70,11 @@ def _run_one(cfg, model_name):
 
     sf.shutdown()
     runtime_cfg = cfg["runtime"]
-    sf.init(runtime_cfg["parties"], address=runtime_cfg["address"], num_gpus=1)
-    gpu_per_party = 1.0 / max(len(runtime_cfg["parties"]), 1)
+    num_gpus = runtime_cfg.get("num_gpus", 0)
+    sf.init(runtime_cfg["parties"], address=runtime_cfg["address"], num_gpus=num_gpus)
+    gpu_per_party = runtime_cfg.get(
+        "gpu_per_party", num_gpus / max(len(runtime_cfg["clients"]), 1) if num_gpus else 0
+    )
 
     device_map = {name: sf.PYU(name) for name in runtime_cfg["parties"]}
     device_list = [device_map[name] for name in runtime_cfg["clients"]]
