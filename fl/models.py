@@ -61,7 +61,13 @@ def build_model(in_channels, num_classes):
 
 
 def build_torch_model_def(
-    in_channels, num_classes, lr, enable_metrics=True, optimizer_name="adam", momentum=0.0
+    in_channels,
+    num_classes,
+    lr,
+    enable_metrics=True,
+    optimizer_name="adam",
+    momentum=0.0,
+    device="cpu",
 ):
     loss_fn = nn.CrossEntropyLoss
     if optimizer_name == "sgd":
@@ -70,6 +76,12 @@ def build_torch_model_def(
         optim_fn = optim_wrapper(optim.Adam, lr=lr)
     else:
         raise ValueError(f"Unsupported optimizer: {optimizer_name}")
+    def _model_fn():
+        model = build_model(in_channels, num_classes)
+        use_cuda = device == "cuda" and torch.cuda.is_available()
+        if use_cuda:
+            model = model.to("cuda")
+        return model
     metrics = []
     if enable_metrics:
         metrics = [
@@ -77,7 +89,7 @@ def build_torch_model_def(
             metric_wrapper(Precision, task="multiclass", num_classes=num_classes, average="micro"),
         ]
     return TorchModel(
-        model_fn=lambda: build_model(in_channels, num_classes),
+        model_fn=_model_fn,
         loss_fn=loss_fn,
         optim_fn=optim_fn,
         metrics=metrics,

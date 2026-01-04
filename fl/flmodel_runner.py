@@ -36,6 +36,7 @@ def run_fedavg_or_fedprox(
     lr = train_cfg["lr"]
     optimizer_name = train_cfg.get("optimizer", "adam")
     momentum = train_cfg.get("momentum", 0.0)
+    device = train_cfg.get("device", "cpu")
     aggregate_freq = train_cfg.get("aggregate_freq", local_epochs)
     eval_at_end = train_cfg.get("eval_at_end", True)
 
@@ -46,6 +47,7 @@ def run_fedavg_or_fedprox(
         enable_metrics=eval_at_end,
         optimizer_name=optimizer_name,
         momentum=momentum,
+        device=device,
     )
     aggregator = SecureAggregator(server, device_list)
 
