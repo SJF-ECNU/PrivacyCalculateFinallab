@@ -35,7 +35,8 @@ def main():
     print(f"The version of SecretFlow: {sf.__version__}")
     sf.shutdown()
     runtime_cfg = cfg["runtime"]
-    sf.init(runtime_cfg["parties"], address=runtime_cfg["address"])
+    sf.init(runtime_cfg["parties"], address=runtime_cfg["address"], num_gpus=1)
+    gpu_per_party = 1.0 / max(len(runtime_cfg["parties"]), 1)
 
     device_map = {name: sf.PYU(name) for name in runtime_cfg["parties"]}
     device_list = [device_map[name] for name in runtime_cfg["clients"]]
@@ -56,6 +57,7 @@ def main():
             test_label,
             in_channels,
             num_classes,
+            gpu_per_party,
         )
     else:
         run_feddyn(

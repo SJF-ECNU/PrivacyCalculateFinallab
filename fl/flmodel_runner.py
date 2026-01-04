@@ -5,7 +5,16 @@ from .models import build_torch_model_def
 
 
 def run_fedavg_or_fedprox(
-    cfg, device_list, server, train_data, train_label, test_data, test_label, in_channels, num_classes
+    cfg,
+    device_list,
+    server,
+    train_data,
+    train_label,
+    test_data,
+    test_label,
+    in_channels,
+    num_classes,
+    num_gpus,
 ):
     train_cfg = cfg["train"]
     rounds = train_cfg["rounds"]
@@ -33,6 +42,7 @@ def run_fedavg_or_fedprox(
         strategy=strategy,
         backend="torch",
         strategy_params=strategy_params,
+        num_gpus=num_gpus,
     )
 
     history = fl_model.fit(
