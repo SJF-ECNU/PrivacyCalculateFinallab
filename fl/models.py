@@ -44,8 +44,11 @@ class ConvNet(BaseModule):
         x = x.view(x.size(0), -1)
         return self.classifier(x)
 
-    def get_weights(self):
-        return [p.detach().cpu().numpy() for p in self.parameters()]
+    def get_weights(self, return_numpy=True):
+        weights = [p.detach().cpu() for p in self.parameters()]
+        if return_numpy:
+            return [w.numpy() for w in weights]
+        return weights
 
     def set_weights(self, weights):
         with torch.no_grad():
