@@ -9,6 +9,13 @@ from secretflow.ml.nn.core.torch import (
 from torchmetrics import Accuracy, Precision
 
 
+class FloatBatchNorm2d(nn.BatchNorm2d):
+    def __init__(self, num_features, **kwargs):
+        super().__init__(num_features, **kwargs)
+        if self.num_batches_tracked is not None:
+            self.num_batches_tracked = self.num_batches_tracked.float()
+
+
 class ConvNet(BaseModule):
     """Small ConvNet for MNIST/CIFAR (Torch)."""
 
@@ -16,11 +23,11 @@ class ConvNet(BaseModule):
         super().__init__()
         self.features = nn.Sequential(
             nn.Conv2d(in_channels, 32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
+            FloatBatchNorm2d(32),
             nn.ReLU(),
             nn.MaxPool2d(2),
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
+            FloatBatchNorm2d(64),
             nn.ReLU(),
             nn.MaxPool2d(2),
             nn.AdaptiveAvgPool2d((1, 1)),
