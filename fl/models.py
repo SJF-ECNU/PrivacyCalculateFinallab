@@ -51,7 +51,13 @@ class ConvNet(BaseModule):
         return weights
 
     def set_weights(self, weights):
+        self.update_weights(weights)
+
+    def update_weights(self, weights):
         with torch.no_grad():
+            if isinstance(weights, dict):
+                self.load_state_dict(weights)
+                return
             for param, src in zip(self.parameters(), weights):
                 if not torch.is_tensor(src):
                     src = torch.tensor(src)
