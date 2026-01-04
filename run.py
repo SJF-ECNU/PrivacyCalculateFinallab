@@ -1,3 +1,4 @@
+import inspect
 import random
 
 import numpy as np
@@ -33,6 +34,15 @@ def main():
     torch.manual_seed(seed)
 
     print(f"The version of SecretFlow: {sf.__version__}")
+    def make_pyu(name, gpus):
+        try:
+            sig = inspect.signature(sf.PYU)
+        except (TypeError, ValueError):
+            return sf.PYU(name)
+        if gpus and "num_gpus" in sig.parameters:
+            return sf.PYU(name, num_gpus=gpus)
+        return sf.PYU(name)
+
     sf.shutdown()
     runtime_cfg = cfg["runtime"]
     num_gpus = runtime_cfg.get("num_gpus", 0)
@@ -41,7 +51,10 @@ def main():
         "gpu_per_party", num_gpus / max(len(runtime_cfg["clients"]), 1) if num_gpus else 0
     )
 
-    device_map = {name: sf.PYU(name) for name in runtime_cfg["parties"]}
+    device_map = {
+        name: make_pyu(name, gpu_per_party if name in runtime_cfg["clients"] else 0)
+        for name in runtime_cfg["parties"]
+    }
     device_list = [device_map[name] for name in runtime_cfg["clients"]]
     server = device_map[runtime_cfg["server"]]
 
