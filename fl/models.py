@@ -1,32 +1,6 @@
 from torch import nn, optim
 
-from secretflow.ml.nn.core.torch import (
-    BaseModule,
-    TorchModel,
-    metric_wrapper,
-    optim_wrapper,
-)
-from torchmetrics import Accuracy, Precision
-
-
-class DeviceAwareAccuracy(Accuracy):
-    def update(self, preds, target):
-        if preds.is_cuda:
-            preds = preds.detach().cpu()
-        if target.is_cuda:
-            target = target.detach().cpu()
-        self.to("cpu")
-        return super().update(preds, target)
-
-
-class DeviceAwarePrecision(Precision):
-    def update(self, preds, target):
-        if preds.is_cuda:
-            preds = preds.detach().cpu()
-        if target.is_cuda:
-            target = target.detach().cpu()
-        self.to("cpu")
-        return super().update(preds, target)
+from secretflow.ml.nn.core.torch import BaseModule, TorchModel, optim_wrapper
 
 
 class ConvNet(BaseModule):
@@ -62,8 +36,5 @@ def build_torch_model_def(in_channels, num_classes, lr):
         model_fn=lambda: build_model(in_channels, num_classes),
         loss_fn=loss_fn,
         optim_fn=optim_fn,
-        metrics=[
-            metric_wrapper(DeviceAwareAccuracy, task="multiclass", num_classes=num_classes, average="micro"),
-            metric_wrapper(DeviceAwarePrecision, task="multiclass", num_classes=num_classes, average="micro"),
-        ],
+        metrics=[],
     )
