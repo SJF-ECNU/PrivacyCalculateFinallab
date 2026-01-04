@@ -5,7 +5,7 @@ from pathlib import Path
 from .data import SUPPORTED_DATASETS
 
 
-SUPPORTED_MODELS = {"fedavg", "fedprox", "feddyn"}
+SUPPORTED_MODELS = {"fedavg", "fedprox", "feddyn", "fedbn", "fedper"}
 
 
 def parse_args():

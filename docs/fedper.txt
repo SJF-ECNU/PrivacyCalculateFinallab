@@ -1,0 +1,739 @@
+Federated Learning with Personalization Layers
+Manoj Ghuhan Arivazhagan Vinay Aggarwal
+Adobe Research Indian Institute of Technology, Roorkee, India
+Aaditya Kumar Singh Sunav Choudhary
+Indian Institute of Technology, Kharagpur, India Adobe Research
+Abstract
+The emerging paradigm of federated learning
+strives to enable collaborative training of ma￾chine learning models on the network edge
+without centrally aggregating raw data and
+hence, improving data privacy. This sharply
+deviates from traditional machine learning
+and necessitates design of algorithms robust
+to various sources of heterogeneity. Specifi-
+cally, statistical heterogeneity of data across
+user devices can severely degrade performance
+of standard federated averaging for traditional
+machine learning applications like personal￾ization with deep learning. This paper pro￾poses FedPer, a base + personalization layer
+approach for federated training of deep feed
+forward neural networks, which can combat
+the ill-effects of statistical heterogeneity. We
+demonstrate effectiveness of FedPer for non￾identical data partitions of CIFAR datasets
+and on a personalized image aesthetics dataset
+from Flickr.
+1 Introduction
+Modern day mobiles, wearables, home assistants and
+other internet enabled devices possess sophisticated
+hardware and software capabilities to support a variety
+of applications and generate large volumes of contex￾tual and user data. Owing to privacy concerns and
+increasing compute and storage capabilities at the net￾work edge, it has become increasingly attractive to keep
+data locally on user/client/edge devices and execute
+machine learning (ML) model training computations
+Preliminary work. Under review by AISTATS 2020. Do not
+distribute.
+on device with locally available data and occassional
+communication with an aggregating parameter server.
+This approach to training ML models is termed as
+federated learning (McMahan et al., 2017) and is in
+sharp contrast to traditional ML training and predic￾tion pipelines that rely on central aggregation of raw
+data.
+The recent overview article by Li et al. (2019) articu￾lates the many unique challenges faced by a federated
+learning system. One such challenge is that the ef￾fective data distribution at different clients can vary
+greatly across the (potentially millions) of participating
+devices. Such statistical heterogeneity can be detrimen￾tal to the performance of ML training algorithms for
+several applications like personalization, recommenda￾tion, fraud detection, etc. since traditional ML training
+algorithms are designed for central or distributed com￾putation environments where data partitioning can be
+tightly controlled. Overcoming the ill-effects of statis￾tical heterogeneity in federated learning is an active
+area of research with several recent works (Chen et al.,
+2018; Smith et al., 2017; Zhao et al., 2018; Sahu et al.,
+2018).
+Herein, we study the effects of the personalization
+setup as a source of statistical heterogeneity in feder￾ated learning with deep feedforward neural networks.
+Personalization is a key application of ML and is possi￾ble because users differ in their preferences as captured
+from raw user data. In a federated setup where edge
+devices belong to users, this necessarily means that
+data for personalization is statistically heterogeneous.
+For personalization via recommendation, ud din et al.
+(2019) present the first attempt to extend collaborative
+filtering to a federated setup and Chen et al. (2018)
+design a meta-learning approach for federated training.
+While these approaches were demonstrated to perform
+very well on the MovieLens 100k dataset (Harper and
+Konstan, 2015), it isn’t obvious how to extend them
+to deep neural network models or to problems that
+cannot be addressed by collaborative filtering. We be￾arXiv:1912.00818v1 [cs.LG] 2 Dec 2019
+Manuscript under review by AISTATS 2020
+Figure 1: Pictorial view of proposed federated person￾alization approach. All user devices share a set of base
+layers with same weights (colored blue) and have dis￾tinct personalization layers that can potentially adapt
+to individual data. The base layers are shared with the
+parameter server while the personalization layers are
+kept private by each device.
+lieve that the right approach to personalized federated
+learning is a highly non-trivial question on which the
+research community has barely scratched the surface.
+In particular, the challenge comes from multiple facets,
+including but not limited to:
+• Many personalization tasks like personalized im￾age aesthetics (Ren et al., 2017) and personalized
+highlight detection (Garcia del Molino and Gygli,
+2018) have no explicit user features in the data
+and need to extract such features during training.
+Hence, same input data can receive different labels
+from different users implying that the personal￾ized models must differ across users to be able to
+predict different labels for similar test data. This
+is already outside the scope of standard federated
+learning (McMahan et al., 2017) which learns one
+global model and effectively replicates it locally
+on every client.
+• The number of training samples per user is not
+large enough to train individual ML models in
+isolation. Hence, some communication and collab￾oration is needed to leverage wisdom of the crowd.
+However, collaborative filtering algorithms may
+not be applicable since they require considerable
+overlap between items rated by different users. Ac￾cording to Ren et al. (2017); Garcia del Molino
+and Gygli (2018), the sufficient overlap condition
+fails in typical datasets for personalized image aes￾thetics and personalized highlight detection among
+other tasks.
+1.1 Contributions
+1. We propose to capture personalization aspects in
+federated learning by viewing deep learning models
+as base + personalization layers as illustrated in
+Figure 1. Our training algorithm comprises of the
+base layers being trained by federated averaging (or
+some variant thereof) and personalization layers
+being trained only from local data with stochastic
+gradient descent (or some variant thereof). We
+demonstrate that the personalization layers that
+are free from the federated averaging (FedAvg)
+procedure can help combat the ill-effects of statis￾tical heterogeneity.
+2. We demonstrate that standard federated learn￾ing setup is highly unsuitable for personal￾ization tasks by comparing its performance
+against our federated personalization approach
+w.r.t. two datasets: (a) non-identically par￾titioned CIFAR-10/CIFAR-100 dataset, and
+(b) FLICKR-AES dataset from Ren et al. (2017).
+Interestingly, standard federated learning’s fail￾ure on the FLICKR-AES dataset is qualitatively
+and quantitatively very different from its poor
+performance on the non-identically partitioned
+CIFAR-100 dataset.
+2 Related Work
+We have built upon several ideas in literature for the
+research communicated in this paper. We call out the
+overlaps and differences below.
+Federated Learning: This paradigm for training ML
+models on user/client/edge devices was first proposed
+through the papers Konecn´y et al. (2015); McMahan
+et al. (2017); Konecn´y et al. (2018). The initial focus
+was on reducing the communication overhead while
+maintaining the statistical performance of the learned
+global model. Since these early works, researchers
+have worked to shed light on the other challenges of
+making a federated system work (which include system
+heterogeneity and privacy leakage besides statistical het￾erogeneity and communication overhead) and potential
+solutions in various application scenarios. These are
+highlighted with bibliographic references in the recent
+overview article Li et al. (2019). While we acknowl￾edge that progress on all four challenges are needed
+for practically realizing federated learning systems, our
+novelty in this work is restricted to the statistical hetero￾geneity aspect while maintaining composability with the
+current approaches to tackle the other three challenges.
+Our ‘base + personalization layers’ notion for federated
+deep learning effectively learns different overlapping
+local models to better capture statistical heterogene￾ity. This approach expands on the original scope of
+Manuscript under review by AISTATS 2020
+federated learning which was to train one global model
+and essentially replicate it on all user devices. It is
+known that the original FedAvg algorithm is possibly
+non-convergent when training on pathological and/or
+highly non-identical data partitions (Li et al., 2019;
+McMahan et al., 2017).
+Multi-task and Transfer Learning: Modeling and
+algorithmic techniques in multi-task and transfer learn￾ing domains try to learn with lesser training data by
+leveraging latent relationships across multiple tasks de-
+fined on the same dataset. Smith et al. (2017) were the
+first to recognize that multi-task learning models could
+be effectively used to study various heterogeneities
+of a federated learning setup and incorporate aspects
+of personalization of local models. The authors re￾strict consideration to convex/bi-convex formulations
+of multi-task learning which cannot be easily extended
+to neural network models. Since deep learning models
+naturally yield to multi-task formulations due to their
+layered structure (Ruder, 2017), it should be possible
+to study federated deep multi-task learning setups that
+generalize assumptions in Smith et al. (2017). This
+is indeed the primary inspiration for the ‘base + per￾sonalization layers’ formulation proposed in this paper.
+Intuitively, the base layers can act as the shared layers
+in a multi-task learning model and capture the wisdom
+of the crowd, while the personalization layers can act as
+the task specific layers of the same multi-task learning
+model to capture user specific aspects.
+In a separate line of work (Chen et al., 2019;
+Vepakomma et al., 2018) motivated by scenarios in
+the healthcare domain, a federated transfer learning
+approach has been proposed for solving the personaliza￾tion problem. A hidden assumption in this approach is
+that it is possible to separate the global training steps
+from the subsequent local personalization steps. We
+don’t see any intuitive reason for such an assumption
+to hold for use cases outside of the healthcare domain
+and it definitely does not hold for the personalized im￾age aesthetics and the personalized highlight detection
+tasks in Ren et al. (2017); Garcia del Molino and Gygli
+(2018). In the healthcare domain, separate organiza￾tions can be thought of as ‘devices’ that are disallowed
+from sharing raw data but could jointly train ML mod￾els via federated learning techniques (Yang et al., 2019).
+Vepakomma et al. (2018) motivates various ways to
+split a federated deep learning model across organiza￾tional boundaries to satisfy different constraints on data
+sharing for vertically partitioned data. Although our
+‘base + personalization layers’ construct is also based
+on a splitting principle, our specific split is different
+from those considered in the healthcare domain, and is
+motivated from and evaluated on completely different
+datasets and much smaller data volume distributions.
+Distributed Personalization and Recommenda￾tion: Centralized algorithms for personalization and
+recommendation and their distributed counterparts
+have been extensively studied for various applications.
+The key assumption for many distributed ML algo￾rithms is that data partitioning can be tightly con￾trolled and communication delays are i.i.d. Remark￾ably, even asynchronous distributed algorithms like
+in Miao et al. (2015) can be shown to enjoy strong
+theoretical and empirical properties (like sublinear con￾vergence for convex losses) under these assumptions.
+However, careful redesign and analysis of personaliza￾tion and recommendation algorithms is needed for the
+federated setup owing to statistical and communication
+heterogeneity. Such efforts have appeared only recently
+in the form of ud din et al. (2019) developing the first
+federated collaborative filtering algorithm and Chen
+et al. (2018) formulating a federated meta-learning ap￾proach for recommendation. At present, these efforts
+disregard deep learning models, which is a significant
+shortcoming.
+3 Modeling and Algorithmic Setup
+3.1 Model
+Consider the setup shown in Figure 1 where all user
+devices share the same base layers and have unique
+personalization layers constituting the deep feed for￾ward neural network models. We denote the num￾ber of base and personalized layers on each client
+by positive integers KB and KP respectively and
+let there be N user devices. Let us designate the
+base layer weight matrices by WB,1,WB,2, . . . ,WB,KB
+and their corresponding vector-valued activation func￾tions as aB,1, aB,2, . . . , aB,KB . While the base layer
+weight matrices may be of different dimensions, with
+a slight abuse of notation we will designate the tuple
+(WB,KB , . . . ,WB,2,WB,1) as WB, using the tensor no￾tation. Analogously, for j ∈ {1, 2, . . . , N}, we let the
+personalized layer weight matrices for the j
+th user
+device be designated as WPj ,1,WPj ,2, . . . ,WPj ,KP
+,
+the corresponding vector-valued activation functions
+be denoted by aPj ,1, aPj ,2, . . . , aPj ,KP
+, and the tuple
+￾
+WPj ,KP
+, . . . ,WPj ,2,WPj ,1
+ be notationally captured
+by WPj
+. We will not use any non-trivial tensor calculus
+in the paper so the abuse of notation should not cause
+any confusion. Further, we will not explicitly track the
+dimensions of any weight matrices as the dimensions
+are irrelevant for the exposition in this paper. The
+dimensions of the domain and range of the vector val￾ued activation functions are implicitly unique so as to
+Manuscript under review by AISTATS 2020
+satisfy the forward pass/inference operation
+yˆ = aPj ,KP
+￾ WPj ,KP
+· · · aPj ,1
+￾ WPj ,1aB,KB
+￾
+WB,KB · · · aB,1(WB,1x)· · · · · · (1)
+for any input data point x at the j
+th device. For
+brevity, we’ll denote this forward pass operation at the
+j
+th device by yˆ = f
+￾ x;WB,WPj
+
+. Thus, we implicitly
+assume that the weight tensor WPj
+captures all aspects
+of personalization at the j
+th device.
+With a slight abuse of notation, we denote the joint
+distribution that generates (data, label) pairs at the
+j
+th device by Pj . Letting l(·, ·) denote the per sample
+loss function common to all devices, the learning goal
+in our setting is to minimize the average personalized
+population risk function
+L
+P R￾ WB,WP1
+, . . . ,WPN
+
+=
+N
+1
+N
+X
+j=1
+E(x,y)∼Pj
+
+l
+￾ y, f￾ x;WB,WPj
+
+(2)
+with respect to the weight tensors WB,WP1
+, . . . ,WPN .
+Since the true data generating distributions Pj are
+unknown during training, we’ll use the empirical risk
+at the j
+th device
+L
+ER
+j
+￾ WB,WP
+ ,
+n
+1
+j
+nj X
+i=1
+l(yj,i, f(xj,i;WB,WP ))
+(3)
+as a proxy for the corresponding population risk
+E(x,y)∼Pj
+[l(y, f(x;WB,WP ))], where nj is the num￾ber of training samples available at the j
+th device and
+(xj,i, yj,i) is the i
+th such sample for i ∈ {1, . . . , nj}.
+3.2 Algorithm
+We will use stochastic gradient descent (SGD) as a
+subroutine in our proposed algorithm. Standard for￾mulations of SGD (Bottou et al., 2018) for minimizing
+an empirical risk function like equation 3 requires us
+to specify the following: (a) the decision variables
+that would be updated by SGD and their initial val￾ues, (b) the batch size for partitioning the dataset
+{(xj,i, yj,i) | 1 ≤ i ≤ nj} and the number of epochs over
+that dataset, and (c) the learning rate. We will denote
+by SGD￾ L
+ER
+j
+, cWB, cWP , η, e, b , the updated values of
+decision variable ￾ WB,WP
+ , when the SGD is started
+from ￾ WB,WP
+ =
+￾ WcB,WcP
+ w.r.t. the loss function
+L
+ER
+j
+￾ WB,WP
+ and executed with learning rate η and
+batch size b for e epochs over the dataset. We have
+assumed that the random permutation of the dataset
+for an epoch is defined independent of the proposed
+algorithm.
+Algorithm 1 FedPer-Client(j)
+Require: f(·; ·, ·), e, b, {(xj,i, yj,i) | i ∈ {1, . . . , nj}}
+Require: ηj
+(k)
+for k ∈ Z+
+1: Initialize W
+(0)
+Pj
+at random
+2: Send nj to server
+3: for k = 1, 2, . . . do
+4: Receive W
+(
+B
+k−1) from server
+5: ￾ W
+(
+B,j
+k)
+,W
+(k)
+Pj
+ ← SGDj
+￾ W
+(
+B
+k−1)
+,W
+(k−1)
+Pj
+, ηj
+(k)
+
+6: Send W
+(
+B,j
+k)
+to server
+7: end for
+Algorithm 2 FedPer-Server
+1: Initialize W
+(0)
+B at random
+2: Receive nj from each client j ∈ {1, . . . , N} and
+compute γj = nj/
+P
+N
+j=1 nj
+3: Send W
+(0)
+B to each client
+4: for k = 1, 2, . . . do
+5: Receive W
+(
+B,j
+k)
+from each client j ∈ {1, . . . , N}
+6: Aggregate W
+(
+B
+k) ←
+P
+N
+j=1 γjW
+(
+B,j
+k)
+7: Send W
+(
+B
+k)
+to each client
+8: end for
+Our proposed personalized federated training algorithm
+FedPer is described via Algorithms 1 and 2. The steps
+for the server component of FedPer are detailed un￾der Algorithm 2 and the steps for the j
+th client are
+described under Algorithm 1. Intuitively, the server
+employs a FedAvg based approach to train the base
+layers globally whereas each client updates its base and
+personalized layers locally (between successive global
+aggregations) using a SGD style algorithm. To keep the
+exposition simple and relevant to the personalization
+driven statistical heterogeneity, we make the following
+assumptions that can be readily relaxed in implemen￾tation: (a) the dataset at any client doesn’t change
+across global aggregations, (b) the batch size b and
+the #epochs e are invariant across clients and across
+global aggregations,
+￾
+WB,WPj
+ between global aggregations, and
+(c) each client uses SGD to update
+(d) all N
+user devices are active throughout the training process.
+We denote the values assumed during the k
+th itera￾tion by (k) in the superscript. Between the k
+th and
+(
+SGD
+k + 1)
+with learning rate
+th global aggregations, the
+ηj
+(k)
+and let the updated value
+j
+th device execute
+SGD￾ L
+ER
+j
+, cWB, cWP , ηj
+(k)
+, e, b be denoted by the short￾hand SGDj
+￾ WcB,WcP , ηj
+(k)
+
+. During the k
+th global ag￾gregation, the server computes a weighted combination
+of WB,j
+(k)
+across all clients j ∈ {1, . . . , N} using weights
+γj = nj/
+P
+N
+j=1 nj to arrive at W
+(
+B
+k)
+.
+Manuscript under review by AISTATS 2020
+4 Experiments
+We evaluate the performance of FedPer across mul￾tiple datasets and deep learning model families and
+contrast it with the behavior of FedAvg. We note that
+FedPer reduces to FedAvg when KP = 0, i.e. per￾sonalization layers are absent. Sections 4.2 and 4.3
+respectively present the effect of statistical heterogene￾ity and changing KP for experiments with CIFAR
+datasets. Corresponding results on the FLICKR-AES
+dataset are presented in Section 4.5. In the spirit
+of reproducibility, we have made all datasets, imple￾mentations for experiments, and results available at
+https://bit.ly/35dKebE.
+4.1 Datasets, Model Architectures, and
+Implementation Details
+Datasets:
+1. CIFAR-10 and CIFAR-100 are image classification
+datasets with 10 and 100 labeled classes respec￾tively (Krizhevsky and Hinton, 2009). Both have
+50,000 training samples and 10,000 testing samples.
+Each image has a unique label.
+2. FLICKR-AES dataset was compiled by Ren et al.
+(2017) to study personalized image aesthetics. It
+has 40,000 photographs from www.flickr.com
+with aesthetic ratings (between 1 and 5) collected
+via Amazon Mechanical Turk. Each image is rated
+by 5 different users and there are a total of 210
+users. Each user has rated between 60 and 290 im￾ages with average being 160 ratings. We randomly
+split the data of each user into an 80% training
+set and a 20% testing set.
+Model Architectures: We work with the ResNet-34
+and MobileNet-v1 families of convolution neural net￾works. While ResNet model family achieves state-of￾the-art performance for many image classification tasks,
+MobileNet is an efficient model family for mobile vi￾sion applications with low compute resources. Both
+of these families are constructed by composing their
+respective basic block multiple times. ResNet-34 and
+MobileNet-v1 have 16 and 11 basic blocks respectively.
+ResNet’s basic block is a residual block consisting of 2
+convlayers and a residual connection, while MobileNet’s
+basic block consists of a depthwise and a pointwise
+convolutional layer. We will delineate base and person￾alization layers in units of basic blocks.
+Implementation Details: We run each experiment
+for 100 global aggregations, with e = 4 epochs for
+SGD between successive global aggregations. We use
+constant learning rate ηj
+(k) = 0.01 across global aggre￾gations and across clients.
+• Experiments with FLICKR-AES dataset use a ran￾dom subset of N = 30 users as clients, with SGD
+batch size b = 4. This dataset is naturally un￾balanced in terms of nj and statistically heteroge￾neous in terms of Pj .
+• Experiments with CIFAR-10 and CIFAR-100 use
+N = 10 clients, with SGD batch size b = 128.
+Data volumes are balanced across clients in terms
+of nj , but are non-identically partitioned in terms
+of Pj by restricting the samples of any particular
+client to belong to atmost k classes. The number
+of samples from a particular class is distributed
+equally across clients allowed to sample from it,
+and the level of statistical heterogeneity is varied
+by changing the value of k.
+4.2 Effect of Statistical Heterogeneity
+Figure 2 presents the test set accuracies for FedAvg
+vs FedPer (averaged across clients) on ResNet-34
+and MobileNet-v1 as a function of global aggregation
+rounds for different levels of statistical heterogeneity
+(k ∈ {4, 8, 10}). k = 4 corresponds to a highly non￾identical data partition, whereas k = 10 corresponds to
+an identical data partition across the clients. Figure 3
+shows the variation of the test set accuracies across
+clients (via the shaded regions) for FedAvg vs FedPer
+for k = 4 with MobileNet-v1. For results in both of
+these figures, the classifier layer (final fully connected
+layer) and the immediately preceding basic block were
+used as personalization layers for FedPer.
+We observe from Figure 2 that FedPer is significantly
+better both in terms of convergence speed w.r.t. global
+rounds and the client averaged test accuracy achieved
+at steady state. Interestingly, as the data partition
+becomes more identical (parameterized by k moving
+from 4 to 10), FedPer’s performance comes closer
+to that of FedAvg. The qualitative nature of these
+results remains unchanged even if CIFAR-10 is replaced
+by CIFAR-100 and we select k ∈ {40, 80, 100} (see
+supplementary material for plots).
+Figure 3 shows that FedPer also results in lower varia￾tion in test accuracies across clients. This is important
+for fairness in learning. The large cross-client variation
+in test accuracies for FedAvg is somewhat surprising.
+However, the magnitude of this variation does decrease
+when non-identicality of the data partition is reduced
+by increasing k from 4 to 10 (see supplementary mate￾rial for plots).
+4.3 Effect of Personalization Layers
+We consider personalization layers to include the clas￾sifier layer (final fully connected layer) and last few
+Manuscript under review by AISTATS 2020
+(a) MobileNet-v1 (b) ResNet-34
+Figure 2: Performance of FedAvg vs FedPer on non-identical CIFAR-10 partition (k ∈ {4, 8, 10})
+Figure 3: Variation in MobileNet-v1 performance
+across clients for FedAvg vs FedPer on non-identical
+CIFAR-10 partition (k = 4)
+basic blocks. Since we delineate personalization layers
+in units of basic blocks, with a slight abuse of notation,
+we can use KP to denote the number of basic blocks
+included in the personalization layers. KP = 4 refers to
+the classifier layer and the last 3 basic blocks included
+in the set of personalization layers, whereas KP = 1
+refers to only the classifier layer included in the set of
+personalization layers.
+Figure 4 plots test accuracies (averaged across clients)
+w.r.t. CIFAR-10 for FedPer on ResNet-34 and
+MobileNet-v1 as a function of global aggregation
+rounds for different number of personalization layers
+(KP ∈ {1, 2, 3, 4}). Interestingly, there doesn’t seem
+to be a clear correlation between KP and the client
+averaged test accuracy at steady state, except that hav￾ing atleast one personalization layer helps. For both
+MobileNet-v1 and ResNet-34, KP = 2 seems to achieve
+the best performance on CIFAR-10, but KP = 1 seems
+to be the best for CIFAR-100.
+4.4 Do Base Layers Learn Anything?
+In theory, it is possible that the personalization layers
+may be sufficient for the learning tasks at hand render￾ing the base layers redundant. To test whether this is
+the case, we replace the base layers at each client with
+a linear fully connected layer and train with FedPer.
+If the base layers are redundant, then there should
+not be a significant drop in test accuracy (as com￾pared to ResNet-34 or MobileNet-v1) when this model
+is trained. Figures 5 and 6 confirm that this is not the
+case, atleast for CIFAR-100. In fact, the performance
+of purely local training confirms that the number of
+training samples per client is not large enough to learn
+individual client models to high degrees of accuracy.
+4.5 Performance on FLICKR-AES
+Figure 7 and 8 shows the test performance of
+the MobileNet-v1 and ResNet-34 models on the
+FLICKR-AES dataset. It can be seen from the re￾sults that FedAvg is unfit for modeling personaliza￾tion tasks. The Performance of the MobileNet model
+trained using FedAvg is quantitatively very different
+when compared to its performance on CIFAR datasets
+and is similar to random guessing. This is because,
+the FedAvg approach has no way of capturing the
+personal preferences of the user as it has the same copy
+of the model on all clients.
+Models trained using our FedPer approach captures
+the user preferences through the personalization layers.
+While the models used here are not state-of-the-art
+for this task, it provides sufficient evidence to show
+that our FedPer approach has the ability to model
+Manuscript under review by AISTATS 2020
+(a) MobileNet-v1 (b) ResNet-34
+Figure 4: Performance of FedPer on non-identical CIFAR-100 partition w.r.t. #personalization layers
+Figure 5: Effect on the performance of MobileNet-v1 on
+CIFAR-100 before and after replacing the base layers
+with linear layers
+personalized tasks. Results of the experiment where
+we replace the base layers of the model with linear
+layer for MobileNet-v1 is given in Figure 9. Similar to
+the CIFAR-100 dataset, we see a drop in the perfor￾mance of morphed models thereby again confirming
+our hypothesis that base layers capture complex image
+features through federated training.
+5 Conclusion
+In this work, we propose FedPer a novel approach for
+capturing the personalization aspect of users in the fed￾erated learning setup. FedPer achieves this by view￾ing the deep learning models as base + personalization
+layers. While the base layers are trained in a collab￾orative manner using the existing federated learning
+approach, the personalization layers are trained locally
+thereby enabling our approach to capture personal￾Figure 6: Effect on the performance of ResNet-34 on
+CIFAR-100 before and after replacing the base layers
+with linear layers
+ization aspects of users. Results indicate that having
+base + personalization layers help in combating the
+ill-effects of statistical heterogeneity. Empirical results
+on FLICKR-AES and CIFAR datasets demonstrates
+the ineffectiveness of FedAvg and the effectiveness of
+FedPer in modelling the personalization tasks.
+References
+Bottou, L., Curtis, F. E., and Nocedal, J. (2018). Op￾timization methods for large-scale machine learning.
+SIAM Review, 60(2):223–311.
+Chen, F., Dong, Z., Li, Z., and He, X. (2018). Fed￾erated Meta-Learning for Recommendation. ArXiv,
+abs/1802.07876.
+Chen, Y., Wang, J., Yu, C., Gao, W., and Qin, X.
+(2019). FedHealth: A Federated Transfer Learn-
+Manuscript under review by AISTATS 2020
+Figure 7: Performance of MobileNet-v1 on
+FLICKR-AES when trained using FedAvg and
+FedPer
+Figure 8: Performance of ResNet-34 on FLICKR-AES
+when trained using FedAvg and FedPer
+ing Framework for Wearable Healthcare. ArXiv,
+abs/1907.09173.
+Garcia del Molino, A. and Gygli, M. (2018). PHD-GIFs:
+Personalized Highlight Detection for Automatic GIF
+Creation. In Proceedings of the 26th ACM Inter￾national Conference on Multimedia, MM ’18, pages
+600–608. ACM.
+Harper, F. M. and Konstan, J. A. (2015). The Movie￾Lens Datasets: History and Context. ACM Trans.
+Interact. Intell. Syst., 5(4):19:1–19:19.
+Konecn´y, J., McMahan, H. B., and Ramage, D. (2015).
+Federated Optimization: Distributed Optimization
+Beyond the Datacenter. ArXiv, abs/1511.03575.
+Konecn´y, J., McMahan, H. B., Yu, F. X., Richt´arik,
+P., Suresh, A. T., and Bacon, D. (2018). Federated
+Learning: Strategies for Improving Communication
+Efficiency. ArXiv, abs/1610.05492.
+Figure 9: Effect on the performance of MobileNet-v1
+on FLICKR-AES before and after replacing the base
+layers with linear layers
+Figure 10: Effect on the performance of ResNet-34
+on FLICKR-AES before and after replacing the base
+layers with linear layers
+Krizhevsky, A. and Hinton, G. (2009). Learning mul￾tiple layers of features from tiny images. Technical
+report, Citeseer.
+Li, T., Sahu, A. K., Talwalkar, A., and Smith, V. L.
+(2019). Federated Learning: Challenges, Methods,
+and Future Directions. ArXiv, abs/1908.07873.
+McMahan, B., Moore, E., Ramage, D., Hampson, S.,
+and y Arcas, B. A. (2017). Communication-Efficient
+Learning of Deep Networks from Decentralized Data.
+In Singh, A. and Zhu, J., editors, Proceedings of
+the 20th International Conference on Artificial Intel￾ligence and Statistics, volume 54 of Proceedings of
+Machine Learning Research, pages 1273–1282, Fort
+Lauderdale, FL, USA. PMLR.
+Miao, X., Chu, C.-T., Tang, L., Zhou, Y., Young, J.,
+and Bhasin, A. (2015). Distributed Personalization.
+In Proceedings of the 21th ACM SIGKDD Interna-
+Manuscript under review by AISTATS 2020
+tional Conference on Knowledge Discovery and Data
+Mining, KDD ’15, pages 1989–1998. ACM.
+Ren, J., Shen, X., Lin, Z., Mech, R., and Foran, D. J.
+(2017). Personalized Image Aesthetics. In 2017
+IEEE International Conference on Computer Vision
+(ICCV), pages 638–647.
+Ruder, S. (2017). An Overview of Multi-Task Learning
+in Deep Neural Networks. ArXiv, abs/1706.05098.
+Sahu, A. K., Li, T., Sanjabi, M., Zaheer, M., Talwalkar,
+A., and Smith, V. (2018). Federated Optimization
+in Heterogeneous Networks. ArXiv, abs/1812.06127.
+Smith, V., Chiang, C.-K., Sanjabi, M., and Talwalkar,
+A. (2017). Federated Multi-task Learning. In Proceed￾ings of the 31st International Conference on Neural
+Information Processing Systems, pages 4427–4437.
+Curran Associates Inc.
+ud din, M. A., Ivannikova, E., Khan, S. A., Oy￾omno, W., Fu, Q., Tan, K. E., and Flanagan, A.
+(2019). Federated Collaborative Filtering for Privacy￾Preserving Personalized Recommendation System.
+ArXiv, abs/1901.09888.
+Vepakomma, P., Gupta, O., Swedish, T., and Raskar,
+R. (2018). Split learning for health: Distributed deep
+learning without sharing raw patient data. ArXiv,
+abs/1812.00564.
+Yang, Q., Liu, Y., Chen, T., and Tong, Y. (2019). Fed￾erated Machine Learning: Concept and Applications.
+ACM Trans. Intell. Syst. Technol., 10(2):12:1–12:19.
+Zhao, Y., Li, M., Lai, L., Suda, N., Civin, D., and
+Chandra, V. (2018). Federated Learning with Non￾IID Data. ArXiv, abs/1806.00582.
+Manuscript under review by AISTATS 2020
+Figure 11: Effect of Non-IID nature on the performance of ResNet-34 on CIFAR-100 when trained using FedAvg
+and FedPer
+Figure 12: Effect of Non-IID nature on the performance of MobileNet-v1 on CIFAR-100 when trained using
+FedAvg and FedPer
+A Appendix
+A.1 Effect of Statistical Heterogeneity
+Figures 11, 12 are plots on CIFAR-100 corresponding to CIFAR-10 plots in Section 4.2 and Figure 13 is the
+cross-client variation in test accuracies with identical data partitioning at k = 10.
+A.2 Effect of Personalization Layers
+Figure 14 shows that for CIFAR-100, KP = 1 seems to do the best in terms of test accuracies.
+A.3 Effect of FineTuning
+In the current FedPer approach, each global round involves the server sending the base layer parameters W
+(
+B
+k−1)
+to the clients, clients updating their local model parameters by performing e local epochs and then sending the
+updated base layer parameters W
+(
+B,j
+k)
+to the server. The server then aggregates the base layer parameters to get
+the updated W
+(
+B
+k)
+.
+In this experiment, at the start of each global round, we fine tune the personalization layer parameters of the
+clients for 1 epoch by freezing the base layers. We hypothesize that fine tuning the personalization layers after
+Manuscript under review by AISTATS 2020
+Figure 13: Variation in the client models performance when training MobileNet-v1 on CIFAR-10 using FedAvg
+and FedPer
+(a) MobileNet-v1 (b) ResNet-34
+Figure 14: Performance of FedPer on non-identical CIFAR-100 partition w.r.t. #personalization layers
+receiving the base layer parameters from the server will help the local client models to accommodate to the
+previous round changes in the base layer parameters better. Results of fine-tuning of MobileNet-v1 and ResNet-34
+on CIFAR-100 dataset are shown in Figures 15 and 16. It can be seen from the results that fine-tuning has a
+positive effect on the client models by improving their accuracy thereby confirming our hypothesis.
+FLICKR-AES: The effect of fine-tuning on the performance of MobileNet-v1 and ResNet-34 are given in Figure 17
+and 18. Interestingly fine-tuning of personalization layers does not have any noticeable effect in the performance
+of the client models.
+Manuscript under review by AISTATS 2020
+Figure 15: Effect on the performance of MobileNet-v1 on CIFAR-100 with/without fine-tuning personalization
+layers
+Figure 16: Effect on the performance of ResNet-34 on CIFAR-100 with/without fine-tuning personalization layers
+Figure 17: Effect on the performance of MobileNet-v1 on FLICKR-AES with/without fine-tuning personalization
+layers
+Manuscript under review by AISTATS 2020
+Figure 18: Effect on the performance of ResNet-34 on FLICKR-AES with/without fine-tuning personalization
+layers
