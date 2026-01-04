@@ -1,9 +1,11 @@
 import torch
+import secretflow as sf
 
 from secretflow.ml.nn import FLModel
 from secretflow.security.aggregation import SecureAggregator
 
 from .models import build_torch_model_def
+from .utils import get_partition
 
 
 def _metric_value(metric):
@@ -30,6 +32,21 @@ def _metric_value_and_count(metric):
     if count <= 0:
         return 0.0, 0
     return float(total) / count, count
+
+
+def _partition_size(x):
+    if hasattr(x, "shape"):
+        return int(x.shape[0])
+    return len(x)
+
+
+def _compute_partition_counts(fed_data, device_list):
+    counts = {}
+    for device in device_list:
+        data_obj = get_partition(fed_data, device)
+        count_obj = device(_partition_size)(data_obj)
+        counts[device] = int(sf.reveal(count_obj))
+    return counts
 
 
 def run_fedavg_or_fedprox(
@@ -137,7 +154,13 @@ def run_fedavg_or_fedprox(
             acc_pairs = {}
             total_weighted = 0.0
             total_count = 0
+            count_map = _compute_partition_counts(test_data, device_list)
+            count_by_party = {
+                getattr(device, "party", str(device)): count
+                for device, count in count_map.items()
+            }
             for party, metrics in local_metrics.items():
+                party_name = party if isinstance(party, str) else getattr(party, "party", str(party))
                 acc_metric = None
                 for metric in metrics:
                     if "accuracy" in metric.name.lower():
@@ -145,10 +168,11 @@ def run_fedavg_or_fedprox(
                         break
                 if acc_metric is None:
                     continue
-                acc_value, acc_count = _metric_value_and_count(acc_metric)
-                acc_pairs[str(party)] = (acc_value, acc_count)
-                total_weighted += acc_value * acc_count
-                total_count += acc_count
+                acc_value, _ = _metric_value_and_count(acc_metric)
+                count = int(count_by_party.get(party_name, 0))
+                acc_pairs[str(party_name)] = (acc_value, count)
+                total_weighted += acc_value * count
+                total_count += count
             if acc_pairs:
                 summary = {"acc_global_weighted": total_weighted / max(total_count, 1)}
                 for party, (acc_value, acc_count) in acc_pairs.items():

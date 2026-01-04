@@ -1,3 +1,4 @@
+import hashlib
 import os
 import random
 
@@ -74,23 +75,31 @@ def _build_optimizer(params, optimizer_name, lr, momentum):
     raise ValueError(f"Unsupported optimizer: {optimizer_name}")
 
 
-def _client_param_signature(state, param_names):
+def _tensor_digest(tensor):
+    tensor = tensor.detach()
+    if tensor.is_cuda:
+        tensor = tensor.cpu()
+    tensor = tensor.float().contiguous()
+    data = tensor.numpy().tobytes()
+    return {
+        "l2": float(torch.norm(tensor).item()),
+        "sum": float(torch.sum(tensor).item()),
+        "abs_sum": float(torch.sum(torch.abs(tensor)).item()),
+        "sha256": hashlib.sha256(data).hexdigest()[:12],
+    }
+
+
+def _client_param_digest(state, param_names):
     model = state["model"]
     param_map = dict(model.named_parameters())
-    total_norm_sq = 0.0
-    total_sum = 0.0
-    total_abs_sum = 0.0
+    digest = {}
     with torch.no_grad():
         for name in param_names:
-            param = param_map[name].detach()
-            total_norm_sq += float(torch.sum(param * param).item())
-            total_sum += float(torch.sum(param).item())
-            total_abs_sum += float(torch.sum(torch.abs(param)).item())
-    return {
-        "l2": total_norm_sq ** 0.5,
-        "sum": total_sum,
-        "abs_sum": total_abs_sum,
-    }
+            param = param_map.get(name)
+            if param is None:
+                continue
+            digest[name] = _tensor_digest(param)
+    return digest
 
 
 def _client_init(lr, seed, in_channels, num_classes, optimizer_name, momentum, device):
@@ -122,10 +131,16 @@ def _client_train_one_round(
     lr,
     optimizer_name,
     momentum,
+    debug_param_names=None,
 ):
     model = state["model"]
     device = state.get("device", "cpu")
+    debug_info = None
+    if debug_param_names:
+        debug_info = {"before_set": _client_param_digest(state, debug_param_names)}
     _set_named_params(model, shared_param_names, global_params)
+    if debug_param_names:
+        debug_info["after_set"] = _client_param_digest(state, debug_param_names)
     optimizer = _build_optimizer(model.parameters(), optimizer_name, lr, momentum)
 
     x, y = prepare_tensor(x, y)
@@ -144,6 +159,9 @@ def _client_train_one_round(
             optimizer.step()
 
     state["optimizer"] = optimizer
+    if debug_param_names:
+        debug_info["after_train"] = _client_param_digest(state, debug_param_names)
+        return state, _get_named_params(model, shared_param_names), debug_info
     return state, _get_named_params(model, shared_param_names)
 
 
@@ -223,6 +241,7 @@ def _run_personalized(
     torch.manual_seed(seed)
     template_model = build_model(in_channels, num_classes)
     personalized_param_names = ()
+    debug_param_names = ()
     debug_head = False
     if strategy == "fedbn":
         shared_param_names = _shared_param_names_fedbn(template_model)
@@ -235,7 +254,22 @@ def _run_personalized(
         personalized_param_names = [
             name for name, _ in template_model.named_parameters() if name not in shared_param_names
         ]
+        bad_shared = [
+            name
+            for name in shared_param_names
+            if any(name.startswith(prefix) for prefix in personalization_prefixes)
+        ]
+        if bad_shared:
+            raise ValueError(
+                "FedPer shared params should not include personalized keys: "
+                + ", ".join(bad_shared)
+            )
         debug_head = bool(fedper_cfg.get("debug_head", False))
+        debug_param_names = [
+            name
+            for name, _ in template_model.named_parameters()
+            if any(name.startswith(prefix) for prefix in personalization_prefixes)
+        ]
         if not personalized_param_names:
             print(
                 "[fedper_warn] No personalized params matched prefixes "
@@ -268,45 +302,48 @@ def _run_personalized(
         random.shuffle(active_devices)
 
         client_params = []
-        head_sig_before = {}
-        head_sig_after = {}
+        debug_infos = {}
         for device_obj in active_devices:
             state_obj = client_states[device_obj]
             data_obj = get_partition(train_data, device_obj)
             label_obj = get_partition(train_label, device_obj)
 
-            train_kwargs = {"num_returns": 2}
-            if gpu_per_client:
-                train_kwargs["num_gpus"] = gpu_per_client
-            if debug_head and personalized_param_names:
-                sig_kwargs = {"num_returns": 1}
+            if debug_head and debug_param_names:
+                train_kwargs = {"num_returns": 3}
                 if gpu_per_client:
-                    sig_kwargs["num_gpus"] = gpu_per_client
-                sig_before_obj = device_obj(_client_param_signature, **sig_kwargs)(
-                    state_obj, personalized_param_names
+                    train_kwargs["num_gpus"] = gpu_per_client
+                state_obj, params_obj, debug_obj = device_obj(
+                    _client_train_one_round, **train_kwargs
+                )(
+                    state_obj,
+                    data_obj,
+                    label_obj,
+                    shared_param_names,
+                    global_params,
+                    local_epochs,
+                    batch_size,
+                    lr,
+                    optimizer_name,
+                    momentum,
+                    debug_param_names,
                 )
-
-            state_obj, params_obj = device_obj(_client_train_one_round, **train_kwargs)(
-                state_obj,
-                data_obj,
-                label_obj,
-                shared_param_names,
-                global_params,
-                local_epochs,
-                batch_size,
-                lr,
-                optimizer_name,
-                momentum,
-            )
-            if debug_head and personalized_param_names:
-                sig_kwargs = {"num_returns": 1}
+                debug_infos[device_obj] = sf.reveal(debug_obj)
+            else:
+                train_kwargs = {"num_returns": 2}
                 if gpu_per_client:
-                    sig_kwargs["num_gpus"] = gpu_per_client
-                sig_after_obj = device_obj(_client_param_signature, **sig_kwargs)(
-                    state_obj, personalized_param_names
+                    train_kwargs["num_gpus"] = gpu_per_client
+                state_obj, params_obj = device_obj(_client_train_one_round, **train_kwargs)(
+                    state_obj,
+                    data_obj,
+                    label_obj,
+                    shared_param_names,
+                    global_params,
+                    local_epochs,
+                    batch_size,
+                    lr,
+                    optimizer_name,
+                    momentum,
                 )
-                head_sig_before[device_obj] = sf.reveal(sig_before_obj)
-                head_sig_after[device_obj] = sf.reveal(sig_after_obj)
             client_states[device_obj] = state_obj
             client_params.append(sf.reveal(params_obj))
 
@@ -318,15 +355,25 @@ def _run_personalized(
         else:
             global_params = _average_params(client_params)
         print(f"Round {r + 1}/{rounds} finished.")
-        if debug_head and personalized_param_names:
+        if debug_head and debug_param_names:
             for device_obj in active_devices:
                 name = getattr(device_obj, "party", str(device_obj))
-                before = head_sig_before.get(device_obj)
-                after = head_sig_after.get(device_obj)
-                if before and after:
+                debug_info = debug_infos.get(device_obj, {})
+                before_set = debug_info.get("before_set", {})
+                after_set = debug_info.get("after_set", {})
+                after_train = debug_info.get("after_train", {})
+                for param_name in debug_param_names:
+                    before = before_set.get(param_name)
+                    after = after_set.get(param_name)
+                    if before and after and before.get("sha256") != after.get("sha256"):
+                        raise AssertionError(
+                            "FedPer personalized params were overwritten by global update: "
+                            f"{param_name} party={name} round={r + 1}"
+                        )
                     print(
                         f"[fedper_head] round={r + 1} party={name} "
-                        f"before={before} after={after}"
+                        f"param={param_name} before_set={before} "
+                        f"after_set={after} after_train={after_train.get(param_name)}"
                     )
 
     if eval_at_end:
