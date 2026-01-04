@@ -77,6 +77,8 @@ def _build_optimizer(params, optimizer_name, lr, momentum):
 def _client_init(lr, seed, in_channels, num_classes, optimizer_name, momentum, device):
     torch.manual_seed(seed)
     model = build_model(in_channels, num_classes)
+    if device == "cuda" and not os.environ.get("CUDA_VISIBLE_DEVICES"):
+        os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     if device == "cuda" and not torch.cuda.is_available():
         device = "cpu"
     if not torch.distributed.is_available() or not torch.distributed.is_initialized():
