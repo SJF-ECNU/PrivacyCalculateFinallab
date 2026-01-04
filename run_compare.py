@@ -1,5 +1,6 @@
 import argparse
 import inspect
+import os
 import copy
 import random
 
@@ -80,6 +81,13 @@ def _run_one(cfg, model_name):
 
     sf.shutdown()
     runtime_cfg = cfg["runtime"]
+    train_device = cfg["train"].get("device")
+    if train_device == "cuda":
+        cuda_visible = runtime_cfg.get("cuda_visible_devices")
+        if cuda_visible is not None:
+            os.environ["CUDA_VISIBLE_DEVICES"] = str(cuda_visible)
+        else:
+            os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
     num_gpus = runtime_cfg.get("num_gpus", 0)
     sf.init(runtime_cfg["parties"], address=runtime_cfg["address"], num_gpus=num_gpus)
     gpu_per_party = runtime_cfg.get(
