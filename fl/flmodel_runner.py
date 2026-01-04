@@ -1,3 +1,5 @@
+import torch
+
 from secretflow.ml.nn import FLModel
 from secretflow.security.aggregation import SecureAggregator
 
@@ -48,6 +50,11 @@ def run_fedavg_or_fedprox(
         optimizer_name=optimizer_name,
         momentum=momentum,
         device=device,
+    )
+    use_cuda = device == "cuda" and torch.cuda.is_available()
+    print(
+        f"[fedavg_init] device={device}, cuda_available={torch.cuda.is_available()}, "
+        f"use_cuda={use_cuda}"
     )
     aggregator = SecureAggregator(server, device_list)
 
