@@ -44,6 +44,16 @@ class ConvNet(BaseModule):
         x = x.view(x.size(0), -1)
         return self.classifier(x)
 
+    def get_weights(self):
+        return [p.detach().cpu().numpy() for p in self.parameters()]
+
+    def set_weights(self, weights):
+        with torch.no_grad():
+            for param, src in zip(self.parameters(), weights):
+                if not torch.is_tensor(src):
+                    src = torch.tensor(src)
+                param.copy_(src.to(param.device))
+
     def update_metrics(self, y_pred, y_true):
         if hasattr(y_pred, "is_cuda") and y_pred.is_cuda:
             y_pred = y_pred.detach().cpu()
