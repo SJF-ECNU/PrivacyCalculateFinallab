@@ -60,9 +60,16 @@ def build_model(in_channels, num_classes):
     return ConvNet(in_channels, num_classes)
 
 
-def build_torch_model_def(in_channels, num_classes, lr, enable_metrics=True):
+def build_torch_model_def(
+    in_channels, num_classes, lr, enable_metrics=True, optimizer_name="adam", momentum=0.0
+):
     loss_fn = nn.CrossEntropyLoss
-    optim_fn = optim_wrapper(optim.Adam, lr=lr)
+    if optimizer_name == "sgd":
+        optim_fn = optim_wrapper(optim.SGD, lr=lr, momentum=momentum)
+    elif optimizer_name == "adam":
+        optim_fn = optim_wrapper(optim.Adam, lr=lr)
+    else:
+        raise ValueError(f"Unsupported optimizer: {optimizer_name}")
     metrics = []
     if enable_metrics:
         metrics = [

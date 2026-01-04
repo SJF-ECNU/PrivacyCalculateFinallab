@@ -21,10 +21,19 @@ def run_fedavg_or_fedprox(
     local_epochs = train_cfg["local_epochs"]
     batch_size = train_cfg["batch_size"]
     lr = train_cfg["lr"]
+    optimizer_name = train_cfg.get("optimizer", "adam")
+    momentum = train_cfg.get("momentum", 0.0)
     aggregate_freq = train_cfg.get("aggregate_freq", local_epochs)
     eval_at_end = train_cfg.get("eval_at_end", True)
 
-    model_def = build_torch_model_def(in_channels, num_classes, lr, enable_metrics=eval_at_end)
+    model_def = build_torch_model_def(
+        in_channels,
+        num_classes,
+        lr,
+        enable_metrics=eval_at_end,
+        optimizer_name=optimizer_name,
+        momentum=momentum,
+    )
     aggregator = SecureAggregator(server, device_list)
 
     strategy_name = cfg["model"]["name"]

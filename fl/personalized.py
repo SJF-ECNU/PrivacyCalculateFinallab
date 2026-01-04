@@ -64,19 +64,36 @@ def _compute_client_weights(train_data, device_list):
     return {device: count / total for device, count in zip(device_list, counts)}
 
 
-def _client_init(lr, seed, in_channels, num_classes):
+def _build_optimizer(params, optimizer_name, lr, momentum):
+    if optimizer_name == "sgd":
+        return optim.SGD(params, lr=lr, momentum=momentum)
+    if optimizer_name == "adam":
+        return optim.Adam(params, lr=lr)
+    raise ValueError(f"Unsupported optimizer: {optimizer_name}")
+
+
+def _client_init(lr, seed, in_channels, num_classes, optimizer_name, momentum):
     torch.manual_seed(seed)
     model = build_model(in_channels, num_classes)
-    optimizer = optim.SGD(model.parameters(), lr=lr)
+    optimizer = _build_optimizer(model.parameters(), optimizer_name, lr, momentum)
     return {"model": model, "optimizer": optimizer}
 
 
 def _client_train_one_round(
-    state, x, y, shared_param_names, global_params, epochs, batch_size, lr
+    state,
+    x,
+    y,
+    shared_param_names,
+    global_params,
+    epochs,
+    batch_size,
+    lr,
+    optimizer_name,
+    momentum,
 ):
     model = state["model"]
     _set_named_params(model, shared_param_names, global_params)
-    optimizer = optim.SGD(model.parameters(), lr=lr)
+    optimizer = _build_optimizer(model.parameters(), optimizer_name, lr, momentum)
 
     x, y = prepare_tensor(x, y)
     dataset = TensorDataset(x, y)
@@ -153,6 +170,8 @@ def _run_personalized(
     local_epochs = train_cfg["local_epochs"]
     batch_size = train_cfg["batch_size"]
     lr = train_cfg["lr"]
+    optimizer_name = train_cfg.get("optimizer", "sgd")
+    momentum = train_cfg.get("momentum", 0.0)
     seed = cfg["data"]["seed"]
     eval_at_end = train_cfg.get("eval_at_end", True)
 
@@ -176,7 +195,9 @@ def _run_personalized(
     client_states = {}
     for idx, device in enumerate(device_list):
         client_seed = seed if strategy != "fedper" else seed + idx + 1
-        client_states[device] = device(_client_init)(lr, client_seed, in_channels, num_classes)
+        client_states[device] = device(_client_init)(
+            lr, client_seed, in_channels, num_classes, optimizer_name, momentum
+        )
 
     for r in range(rounds):
         active_devices = list(device_list)
@@ -197,6 +218,8 @@ def _run_personalized(
                 local_epochs,
                 batch_size,
                 lr,
+                optimizer_name,
+                momentum,
             )
             client_states[device] = state_obj
             client_params.append(sf.reveal(params_obj))
