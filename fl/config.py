@@ -5,7 +5,7 @@ from pathlib import Path
 from .data import SUPPORTED_DATASETS
 
 
-SUPPORTED_MODELS = {"fedavg", "fedprox", "feddyn", "fedbn", "fedper"}
+SUPPORTED_MODELS = {"fedavg", "fedprox", "fedbn", "fedper"}
 
 
 def parse_args():
@@ -19,7 +19,6 @@ def parse_args():
     parser.add_argument("--lr", type=float)
     parser.add_argument("--aggregate-freq", type=int)
     parser.add_argument("--mu", type=float)
-    parser.add_argument("--alpha", type=float)
     parser.add_argument("--seed", type=int)
     return parser.parse_args()
 
@@ -47,7 +46,5 @@ def apply_overrides(cfg, args):
         cfg["train"]["aggregate_freq"] = args.aggregate_freq
     if args.mu is not None:
         cfg["fedprox"]["mu"] = args.mu
-    if args.alpha is not None:
-        cfg["feddyn"]["alpha"] = args.alpha
     if args.seed is not None:
         cfg["data"]["seed"] = args.seed

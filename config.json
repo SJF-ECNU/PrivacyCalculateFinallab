@@ -50,9 +50,6 @@
   "fedprox": {
     "mu": 0.01
   },
-  "feddyn": {
-    "alpha": 0.01
-  },
   "model": {
     "name": "fedavg"
   }

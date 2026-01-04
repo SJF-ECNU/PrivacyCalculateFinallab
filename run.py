@@ -6,7 +6,6 @@ import secretflow as sf
 import torch
 from fl.config import SUPPORTED_MODELS, apply_overrides, load_config, parse_args
 from fl.data import SUPPORTED_DATASETS, build_fed_dataset
-from fl.feddyn import run_feddyn
 from fl.flmodel_runner import run_fedavg_or_fedprox
 from fl.personalized import run_fedbn, run_fedper
 
@@ -59,17 +58,6 @@ def main():
             in_channels,
             num_classes,
             gpu_per_party,
-        )
-    elif model_name == "feddyn":
-        run_feddyn(
-            cfg,
-            device_list,
-            train_data,
-            train_label,
-            test_data,
-            test_label,
-            in_channels,
-            num_classes,
         )
     elif model_name == "fedbn":
         run_fedbn(
