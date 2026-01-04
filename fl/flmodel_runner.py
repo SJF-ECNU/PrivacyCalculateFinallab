@@ -65,6 +65,24 @@ def run_fedavg_or_fedprox(
     else:
         strategy = "fed_prox"
         strategy_params = {"mu": cfg["fedprox"]["mu"]}
+        if device == "cuda":
+            try:
+                from secretflow.ml.nn.fl.backend.torch.strategy import fed_prox
+
+                def _w_norm(self, w1, w2):
+                    l1 = len(w1)
+                    assert l1 == len(w2), "weights should be same in the shape"
+                    proximal_term = 0
+                    for i in range(l1):
+                        w1_t = torch.as_tensor(
+                            w1[i], device=w2[i].device, dtype=w2[i].dtype
+                        )
+                        proximal_term += (w1_t - w2[i]).norm(2) ** 2
+                    return proximal_term
+
+                fed_prox.PYUFedProx.w_norm = _w_norm
+            except Exception as exc:
+                print(f"[fedprox_init] Failed to patch w_norm for CUDA: {exc}")
 
     fl_model = FLModel(
         server=server,
