@@ -9,20 +9,6 @@ from secretflow.ml.nn.core.torch import (
 from torchmetrics import Accuracy, Precision
 
 
-class DeviceAwareAccuracy(Accuracy):
-    def update(self, preds, target):
-        if self.device != preds.device:
-            self.to(preds.device)
-        return super().update(preds, target)
-
-
-class DeviceAwarePrecision(Precision):
-    def update(self, preds, target):
-        if self.device != preds.device:
-            self.to(preds.device)
-        return super().update(preds, target)
-
-
 class ConvNet(BaseModule):
     """Small ConvNet for MNIST/CIFAR (Torch)."""
 
@@ -57,17 +43,7 @@ def build_torch_model_def(in_channels, num_classes, lr):
         loss_fn=loss_fn,
         optim_fn=optim_fn,
         metrics=[
-            metric_wrapper(
-                DeviceAwareAccuracy,
-                task="multiclass",
-                num_classes=num_classes,
-                average="micro",
-            ),
-            metric_wrapper(
-                DeviceAwarePrecision,
-                task="multiclass",
-                num_classes=num_classes,
-                average="micro",
-            ),
+            metric_wrapper(Accuracy, task="multiclass", num_classes=num_classes, average="micro"),
+            metric_wrapper(Precision, task="multiclass", num_classes=num_classes, average="micro"),
         ],
     )
