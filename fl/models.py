@@ -11,13 +11,21 @@ from torchmetrics import Accuracy, Precision
 
 class DeviceAwareAccuracy(Accuracy):
     def update(self, preds, target):
-        self.to(preds.device)
+        if preds.is_cuda:
+            preds = preds.detach().cpu()
+        if target.is_cuda:
+            target = target.detach().cpu()
+        self.to("cpu")
         return super().update(preds, target)
 
 
 class DeviceAwarePrecision(Precision):
     def update(self, preds, target):
-        self.to(preds.device)
+        if preds.is_cuda:
+            preds = preds.detach().cpu()
+        if target.is_cuda:
+            target = target.detach().cpu()
+        self.to("cpu")
         return super().update(preds, target)
 
 
