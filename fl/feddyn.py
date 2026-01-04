@@ -11,34 +11,24 @@ from .models import build_model
 from .utils import get_model_params, get_partition, prepare_tensor, set_model_params
 
 
-def _resolve_device(device_str):
-    if not device_str or device_str == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    return torch.device(device_str)
-
-
-def client_init(lr, seed, in_channels, num_classes, device_str):
+def client_init(lr, seed, in_channels, num_classes):
     torch.manual_seed(seed)
-    device = _resolve_device(device_str)
-    model = build_model(in_channels, num_classes).to(device)
+    model = build_model(in_channels, num_classes)
     optimizer = optim.Adam(model.parameters(), lr=lr)
     h = [torch.zeros_like(p) for p in model.parameters()]
-    return {"model": model, "optimizer": optimizer, "h": h, "device": str(device)}
+    return {"model": model, "optimizer": optimizer, "h": h}
 
 
 def client_train_one_round(state, x, y, global_params, alpha, epochs, batch_size, lr):
     model = state["model"]
     h = state["h"]
-    device = torch.device(state["device"])
 
     set_model_params(model, global_params)
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
-    x, y = prepare_tensor(x, y, device)
+    x, y = prepare_tensor(x, y)
     dataset = TensorDataset(x, y)
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=False)
-
-    global_params = [g.to(device) for g in global_params]
 
     model.train()
     for _ in range(epochs):
@@ -66,13 +56,12 @@ def client_train_one_round(state, x, y, global_params, alpha, epochs, batch_size
     return state, get_model_params(model)
 
 
-def client_evaluate(in_channels, num_classes, global_params, x, y, batch_size, device_str):
-    device = _resolve_device(device_str)
-    model = build_model(in_channels, num_classes).to(device)
+def client_evaluate(in_channels, num_classes, global_params, x, y, batch_size):
+    model = build_model(in_channels, num_classes)
     set_model_params(model, global_params)
     model.eval()
 
-    x, y = prepare_tensor(x, y, device)
+    x, y = prepare_tensor(x, y)
     dataset = TensorDataset(x, y)
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, drop_last=False)
 
@@ -101,7 +90,6 @@ def run_feddyn(
     lr = train_cfg["lr"]
     alpha = cfg["feddyn"]["alpha"]
     seed = cfg["data"]["seed"]
-    device_str = train_cfg.get("device", "auto")
 
     torch.manual_seed(seed)
     global_model = build_model(in_channels, num_classes)
@@ -111,7 +99,7 @@ def run_feddyn(
     client_states = {}
     for device in device_list:
         client_states[device] = device(client_init)(
-            lr, seed, in_channels, num_classes, device_str
+            lr, seed, in_channels, num_classes
         )
 
     for r in range(rounds):
@@ -161,7 +149,6 @@ def run_feddyn(
             data_obj,
             label_obj,
             batch_size,
-            device_str,
         )
         eval_stats.append(sf.reveal(stats_obj))
 

@@ -10,10 +10,10 @@ def get_model_params(model):
 def set_model_params(model, params):
     with torch.no_grad():
         for p, src in zip(model.parameters(), params):
-            p.copy_(src.to(p.device))
+            p.copy_(src)
 
 
-def prepare_tensor(x, y, device=None):
+def prepare_tensor(x, y):
     if not torch.is_tensor(x):
         x = torch.tensor(x)
     if not torch.is_tensor(y):
@@ -22,9 +22,6 @@ def prepare_tensor(x, y, device=None):
     if y.ndim > 1:
         y = y.argmax(dim=-1)
     y = y.long()
-    if device is not None:
-        x = x.to(device)
-        y = y.to(device)
     return x, y
 
 

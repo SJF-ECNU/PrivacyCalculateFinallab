@@ -25,20 +25,15 @@ def run_fedavg_or_fedprox(
         strategy = "fed_prox"
         strategy_params = {"mu": cfg["fedprox"]["mu"]}
 
-    num_gpus_per_client = train_cfg.get("num_gpus_per_client")
-    fl_kwargs = {
-        "server": server,
-        "device_list": device_list,
-        "model": model_def,
-        "aggregator": aggregator,
-        "strategy": strategy,
-        "backend": "torch",
-        "strategy_params": strategy_params,
-    }
-    if num_gpus_per_client is not None:
-        fl_kwargs["num_gpus"] = num_gpus_per_client
-
-    fl_model = FLModel(**fl_kwargs)
+    fl_model = FLModel(
+        server=server,
+        device_list=device_list,
+        model=model_def,
+        aggregator=aggregator,
+        strategy=strategy,
+        backend="torch",
+        strategy_params=strategy_params,
+    )
 
     history = fl_model.fit(
         train_data,
