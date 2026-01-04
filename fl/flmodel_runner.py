@@ -19,6 +19,19 @@ def _metric_value(metric):
     return float(total) / count
 
 
+def _metric_value_and_count(metric):
+    total = metric.total
+    count = metric.count
+    if hasattr(total, "item"):
+        total = total.item()
+    if hasattr(count, "item"):
+        count = count.item()
+    count = int(count) if count is not None else 0
+    if count <= 0:
+        return 0.0, 0
+    return float(total) / count, count
+
+
 def run_fedavg_or_fedprox(
     cfg,
     device_list,
@@ -121,3 +134,25 @@ def run_fedavg_or_fedprox(
             }
             print("Per-client evaluation on test set:")
             print(local_out)
+            acc_pairs = {}
+            total_weighted = 0.0
+            total_count = 0
+            for party, metrics in local_metrics.items():
+                acc_metric = None
+                for metric in metrics:
+                    if "accuracy" in metric.name.lower():
+                        acc_metric = metric
+                        break
+                if acc_metric is None:
+                    continue
+                acc_value, acc_count = _metric_value_and_count(acc_metric)
+                acc_pairs[str(party)] = (acc_value, acc_count)
+                total_weighted += acc_value * acc_count
+                total_count += acc_count
+            if acc_pairs:
+                summary = {"acc_global_weighted": total_weighted / max(total_count, 1)}
+                for party, (acc_value, acc_count) in acc_pairs.items():
+                    summary[f"acc_{party}"] = acc_value
+                    summary[f"n_{party}"] = acc_count
+                print("Weighted accuracy summary:")
+                print(summary)

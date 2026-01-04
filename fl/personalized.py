@@ -74,6 +74,25 @@ def _build_optimizer(params, optimizer_name, lr, momentum):
     raise ValueError(f"Unsupported optimizer: {optimizer_name}")
 
 
+def _client_param_signature(state, param_names):
+    model = state["model"]
+    param_map = dict(model.named_parameters())
+    total_norm_sq = 0.0
+    total_sum = 0.0
+    total_abs_sum = 0.0
+    with torch.no_grad():
+        for name in param_names:
+            param = param_map[name].detach()
+            total_norm_sq += float(torch.sum(param * param).item())
+            total_sum += float(torch.sum(param).item())
+            total_abs_sum += float(torch.sum(torch.abs(param)).item())
+    return {
+        "l2": total_norm_sq ** 0.5,
+        "sum": total_sum,
+        "abs_sum": total_abs_sum,
+    }
+
+
 def _client_init(lr, seed, in_channels, num_classes, optimizer_name, momentum, device):
     torch.manual_seed(seed)
     model = build_model(in_channels, num_classes)
@@ -203,6 +222,8 @@ def _run_personalized(
 
     torch.manual_seed(seed)
     template_model = build_model(in_channels, num_classes)
+    personalized_param_names = ()
+    debug_head = False
     if strategy == "fedbn":
         shared_param_names = _shared_param_names_fedbn(template_model)
     elif strategy == "fedper":
@@ -211,6 +232,20 @@ def _run_personalized(
         if isinstance(personalization_prefixes, str):
             personalization_prefixes = [personalization_prefixes]
         shared_param_names = _shared_param_names_fedper(template_model, personalization_prefixes)
+        personalized_param_names = [
+            name for name, _ in template_model.named_parameters() if name not in shared_param_names
+        ]
+        debug_head = bool(fedper_cfg.get("debug_head", False))
+        if not personalized_param_names:
+            print(
+                "[fedper_warn] No personalized params matched prefixes "
+                f"{personalization_prefixes}; head may be aggregated."
+            )
+        print(
+            "[fedper_init] personalization_prefixes="
+            f"{personalization_prefixes}, shared_params={len(shared_param_names)}, "
+            f"personalized_params={len(personalized_param_names)}"
+        )
     else:
         raise ValueError(f"Unsupported strategy: {strategy}")
 
@@ -233,6 +268,8 @@ def _run_personalized(
         random.shuffle(active_devices)
 
         client_params = []
+        head_sig_before = {}
+        head_sig_after = {}
         for device_obj in active_devices:
             state_obj = client_states[device_obj]
             data_obj = get_partition(train_data, device_obj)
@@ -241,6 +278,14 @@ def _run_personalized(
             train_kwargs = {"num_returns": 2}
             if gpu_per_client:
                 train_kwargs["num_gpus"] = gpu_per_client
+            if debug_head and personalized_param_names:
+                sig_kwargs = {"num_returns": 1}
+                if gpu_per_client:
+                    sig_kwargs["num_gpus"] = gpu_per_client
+                sig_before_obj = device_obj(_client_param_signature, **sig_kwargs)(
+                    state_obj, personalized_param_names
+                )
+
             state_obj, params_obj = device_obj(_client_train_one_round, **train_kwargs)(
                 state_obj,
                 data_obj,
@@ -253,6 +298,15 @@ def _run_personalized(
                 optimizer_name,
                 momentum,
             )
+            if debug_head and personalized_param_names:
+                sig_kwargs = {"num_returns": 1}
+                if gpu_per_client:
+                    sig_kwargs["num_gpus"] = gpu_per_client
+                sig_after_obj = device_obj(_client_param_signature, **sig_kwargs)(
+                    state_obj, personalized_param_names
+                )
+                head_sig_before[device_obj] = sf.reveal(sig_before_obj)
+                head_sig_after[device_obj] = sf.reveal(sig_after_obj)
             client_states[device_obj] = state_obj
             client_params.append(sf.reveal(params_obj))
 
@@ -264,6 +318,16 @@ def _run_personalized(
         else:
             global_params = _average_params(client_params)
         print(f"Round {r + 1}/{rounds} finished.")
+        if debug_head and personalized_param_names:
+            for device_obj in active_devices:
+                name = getattr(device_obj, "party", str(device_obj))
+                before = head_sig_before.get(device_obj)
+                after = head_sig_after.get(device_obj)
+                if before and after:
+                    print(
+                        f"[fedper_head] round={r + 1} party={name} "
+                        f"before={before} after={after}"
+                    )
 
     if eval_at_end:
         eval_stats = []
@@ -298,9 +362,15 @@ def _run_personalized(
             count = stats["total"]
             loss = stats["loss"] / max(count, 1)
             acc = stats["correct"] / max(count, 1)
-            per_client[name] = {"loss": loss, "accuracy": acc}
+            per_client[name] = {"loss": loss, "accuracy": acc, "n": count}
         print("Per-client evaluation on test set:")
         print(per_client)
+        summary = {"acc_global_weighted": avg_acc}
+        for name, stats in per_client.items():
+            summary[f"acc_{name}"] = stats["accuracy"]
+            summary[f"n_{name}"] = stats["n"]
+        print("Weighted accuracy summary:")
+        print(summary)
 
 
 def run_fedbn(
