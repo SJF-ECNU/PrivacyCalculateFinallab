@@ -44,7 +44,8 @@
     "local_epochs": 1,
     "batch_size": 32,
     "lr": 0.01,
-    "aggregate_freq": 1
+    "aggregate_freq": 1,
+    "eval_at_end": true
   },
   "fedprox": {
     "mu": 0.01

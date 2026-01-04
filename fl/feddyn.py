@@ -90,6 +90,7 @@ def run_feddyn(
     lr = train_cfg["lr"]
     alpha = cfg["feddyn"]["alpha"]
     seed = cfg["data"]["seed"]
+    eval_at_end = train_cfg.get("eval_at_end", True)
 
     torch.manual_seed(seed)
     global_model = build_model(in_channels, num_classes)
@@ -138,25 +139,26 @@ def run_feddyn(
 
         print(f"Round {r + 1}/{rounds} finished.")
 
-    eval_stats = []
-    for device in device_list:
-        data_obj = get_partition(test_data, device)
-        label_obj = get_partition(test_label, device)
-        stats_obj = device(client_evaluate)(
-            in_channels,
-            num_classes,
-            global_params,
-            data_obj,
-            label_obj,
-            batch_size,
-        )
-        eval_stats.append(sf.reveal(stats_obj))
+    if eval_at_end:
+        eval_stats = []
+        for device in device_list:
+            data_obj = get_partition(test_data, device)
+            label_obj = get_partition(test_label, device)
+            stats_obj = device(client_evaluate)(
+                in_channels,
+                num_classes,
+                global_params,
+                data_obj,
+                label_obj,
+                batch_size,
+            )
+            eval_stats.append(sf.reveal(stats_obj))
 
-    total_loss = sum(s["loss"] for s in eval_stats)
-    total_correct = sum(s["correct"] for s in eval_stats)
-    total = sum(s["total"] for s in eval_stats)
-    avg_loss = total_loss / max(total, 1)
-    avg_acc = total_correct / max(total, 1)
+        total_loss = sum(s["loss"] for s in eval_stats)
+        total_correct = sum(s["correct"] for s in eval_stats)
+        total = sum(s["total"] for s in eval_stats)
+        avg_loss = total_loss / max(total, 1)
+        avg_acc = total_correct / max(total, 1)
 
-    print("\nFinal evaluation on test set:")
-    print({"loss": avg_loss, "accuracy": avg_acc})
+        print("\nFinal evaluation on test set:")
+        print({"loss": avg_loss, "accuracy": avg_acc})
