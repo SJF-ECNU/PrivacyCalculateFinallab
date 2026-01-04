@@ -3,7 +3,8 @@
     "parties": ["alice", "bob", "charlie"],
     "server": "charlie",
     "clients": ["alice", "bob"],
-    "address": "local"
+    "address": "local",
+    "num_gpus": 1
   },
   "data": {
     "dataset": "mnist",
@@ -44,7 +45,9 @@
     "local_epochs": 1,
     "batch_size": 32,
     "lr": 0.01,
-    "aggregate_freq": 1
+    "aggregate_freq": 1,
+    "device": "auto",
+    "num_gpus_per_client": 0.5
   },
   "fedprox": {
     "mu": 0.01

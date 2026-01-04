@@ -35,7 +35,12 @@ def main():
     print(f"The version of SecretFlow: {sf.__version__}")
     sf.shutdown()
     runtime_cfg = cfg["runtime"]
-    sf.init(runtime_cfg["parties"], address=runtime_cfg["address"])
+    init_kwargs = {"address": runtime_cfg["address"]}
+    if "num_gpus" in runtime_cfg:
+        init_kwargs["num_gpus"] = runtime_cfg["num_gpus"]
+    if "debug_mode" in runtime_cfg:
+        init_kwargs["debug_mode"] = runtime_cfg["debug_mode"]
+    sf.init(runtime_cfg["parties"], **init_kwargs)
 
     device_map = {name: sf.PYU(name) for name in runtime_cfg["parties"]}
     device_list = [device_map[name] for name in runtime_cfg["clients"]]

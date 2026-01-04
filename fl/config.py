@@ -18,6 +18,9 @@ def parse_args():
     parser.add_argument("--batch-size", type=int)
     parser.add_argument("--lr", type=float)
     parser.add_argument("--aggregate-freq", type=int)
+    parser.add_argument("--device", choices=["auto", "cpu", "cuda"])
+    parser.add_argument("--num-gpus", type=float)
+    parser.add_argument("--gpus-per-client", type=float)
     parser.add_argument("--mu", type=float)
     parser.add_argument("--alpha", type=float)
     parser.add_argument("--seed", type=int)
@@ -45,6 +48,12 @@ def apply_overrides(cfg, args):
         cfg["train"]["lr"] = args.lr
     if args.aggregate_freq is not None:
         cfg["train"]["aggregate_freq"] = args.aggregate_freq
+    if args.device is not None:
+        cfg["train"]["device"] = args.device
+    if args.num_gpus is not None:
+        cfg["runtime"]["num_gpus"] = args.num_gpus
+    if args.gpus_per_client is not None:
+        cfg["train"]["num_gpus_per_client"] = args.gpus_per_client
     if args.mu is not None:
         cfg["fedprox"]["mu"] = args.mu
     if args.alpha is not None:
