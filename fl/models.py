@@ -1,3 +1,4 @@
+import torch
 from torch import nn, optim
 
 from secretflow.ml.nn.core.torch import (
