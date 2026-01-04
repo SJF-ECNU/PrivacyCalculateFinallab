@@ -1,3 +1,4 @@
+import os
 import random
 
 import secretflow as sf
@@ -78,6 +79,12 @@ def _client_init(lr, seed, in_channels, num_classes, optimizer_name, momentum, d
     model = build_model(in_channels, num_classes)
     if device == "cuda" and not torch.cuda.is_available():
         device = "cpu"
+    if not torch.distributed.is_available() or not torch.distributed.is_initialized():
+        cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+        print(
+            f"[client_init] device={device}, cuda_available={torch.cuda.is_available()}, "
+            f"CUDA_VISIBLE_DEVICES={cuda_visible}"
+        )
     model = model.to(device)
     optimizer = _build_optimizer(model.parameters(), optimizer_name, lr, momentum)
     return {"model": model, "optimizer": optimizer, "device": device}
