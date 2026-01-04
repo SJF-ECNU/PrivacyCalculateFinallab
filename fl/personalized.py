@@ -34,8 +34,14 @@ def _shared_param_names_fedbn(model):
     return [name for name, _ in model.named_parameters() if name not in bn_param_names]
 
 
-def _shared_param_names_fedper(model):
-    return [name for name, _ in model.named_parameters() if not name.startswith("classifier.")]
+def _shared_param_names_fedper(model, personalization_prefixes):
+    if not personalization_prefixes:
+        return [name for name, _ in model.named_parameters()]
+
+    def is_personalized(name):
+        return any(name.startswith(prefix) for prefix in personalization_prefixes)
+
+    return [name for name, _ in model.named_parameters() if not is_personalized(name)]
 
 
 def _partition_size(x):
@@ -155,7 +161,11 @@ def _run_personalized(
     if strategy == "fedbn":
         shared_param_names = _shared_param_names_fedbn(template_model)
     elif strategy == "fedper":
-        shared_param_names = _shared_param_names_fedper(template_model)
+        fedper_cfg = cfg.get("fedper", {})
+        personalization_prefixes = fedper_cfg.get("personalization_prefixes", ["classifier."])
+        if isinstance(personalization_prefixes, str):
+            personalization_prefixes = [personalization_prefixes]
+        shared_param_names = _shared_param_names_fedper(template_model, personalization_prefixes)
     else:
         raise ValueError(f"Unsupported strategy: {strategy}")
 
@@ -164,8 +174,9 @@ def _run_personalized(
     weight_map = _compute_client_weights(train_data, device_list)
 
     client_states = {}
-    for device in device_list:
-        client_states[device] = device(_client_init)(lr, seed, in_channels, num_classes)
+    for idx, device in enumerate(device_list):
+        client_seed = seed if strategy != "fedper" else seed + idx + 1
+        client_states[device] = device(_client_init)(lr, client_seed, in_channels, num_classes)
 
     for r in range(rounds):
         active_devices = list(device_list)
