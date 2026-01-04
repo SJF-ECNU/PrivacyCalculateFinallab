@@ -76,6 +76,8 @@ def _build_optimizer(params, optimizer_name, lr, momentum):
 def _client_init(lr, seed, in_channels, num_classes, optimizer_name, momentum, device):
     torch.manual_seed(seed)
     model = build_model(in_channels, num_classes)
+    if device == "cuda" and not torch.cuda.is_available():
+        device = "cpu"
     model = model.to(device)
     optimizer = _build_optimizer(model.parameters(), optimizer_name, lr, momentum)
     return {"model": model, "optimizer": optimizer, "device": device}
@@ -186,6 +188,8 @@ def _run_personalized(
         device = "cuda" if torch.cuda.is_available() else "cpu"
     if device == "cuda" and not torch.cuda.is_available():
         device = "cpu"
+    runtime_cfg = cfg.get("runtime", {})
+    gpu_per_client = runtime_cfg.get("gpu_per_party", 0) if device == "cuda" else 0
     eval_at_end = train_cfg.get("eval_at_end", True)
 
     torch.manual_seed(seed)
@@ -208,7 +212,10 @@ def _run_personalized(
     client_states = {}
     for idx, device_obj in enumerate(device_list):
         client_seed = seed if strategy != "fedper" else seed + idx + 1
-        client_states[device_obj] = device_obj(_client_init)(
+        init_kwargs = {"num_returns": 1}
+        if gpu_per_client:
+            init_kwargs["num_gpus"] = gpu_per_client
+        client_states[device_obj] = device_obj(_client_init, **init_kwargs)(
             lr, client_seed, in_channels, num_classes, optimizer_name, momentum, device
         )
 
@@ -222,7 +229,10 @@ def _run_personalized(
             data_obj = get_partition(train_data, device_obj)
             label_obj = get_partition(train_label, device_obj)
 
-            state_obj, params_obj = device_obj(_client_train_one_round, num_returns=2)(
+            train_kwargs = {"num_returns": 2}
+            if gpu_per_client:
+                train_kwargs["num_gpus"] = gpu_per_client
+            state_obj, params_obj = device_obj(_client_train_one_round, **train_kwargs)(
                 state_obj,
                 data_obj,
                 label_obj,
@@ -252,7 +262,10 @@ def _run_personalized(
             state_obj = client_states[device_obj]
             data_obj = get_partition(test_data, device_obj)
             label_obj = get_partition(test_label, device_obj)
-            stats_obj = device_obj(_client_evaluate)(
+            eval_kwargs = {"num_returns": 1}
+            if gpu_per_client:
+                eval_kwargs["num_gpus"] = gpu_per_client
+            stats_obj = device_obj(_client_evaluate, **eval_kwargs)(
                 state_obj,
                 data_obj,
                 label_obj,
