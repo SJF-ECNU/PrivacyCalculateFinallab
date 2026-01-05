@@ -13,6 +13,33 @@ from fl.personalized import run_fedbn, run_fedper
 from fl.wandb_logger import WandbLogger
 
 
+def _build_run_name(cfg):
+    model = cfg["model"]["name"]
+    dataset = cfg["data"].get("dataset") or cfg["data"].get("name")
+    train_cfg = cfg["train"]
+    lr = train_cfg.get("lr")
+    bs = train_cfg.get("batch_size")
+    local_epochs = train_cfg.get("local_epochs")
+    agg = train_cfg.get("aggregate_freq", local_epochs)
+    opt = train_cfg.get("optimizer", "sgd")
+    seed = cfg["data"].get("seed")
+    parts = [
+        model,
+        dataset,
+        f"lr{lr:.2e}",
+        f"bs{bs}",
+        f"e{local_epochs}",
+        f"ag{agg}",
+        opt,
+        f"s{seed}",
+    ]
+    if model == "fedprox":
+        mu = cfg.get("fedprox", {}).get("mu")
+        if mu is not None:
+            parts.append(f"mu{mu:.2e}")
+    return "-".join(str(p) for p in parts if p is not None)
+
+
 def run_experiment(cfg, run_name=None):
     model_name = cfg["model"]["name"]
     data_name = cfg["data"].get("dataset") or cfg["data"].get("name")
@@ -31,6 +58,8 @@ def run_experiment(cfg, run_name=None):
     np.random.seed(seed)
     torch.manual_seed(seed)
 
+    if run_name is None:
+        run_name = _build_run_name(cfg)
     logger = WandbLogger(
         cfg, run_name=run_name, extra_config={"model": model_name, "dataset": data_name}
     )
