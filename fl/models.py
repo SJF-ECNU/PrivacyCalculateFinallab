@@ -76,6 +76,35 @@ class ConvNet(BaseModule):
         return super().update_metrics(y_pred, y_true)
 
 
+def _replace_bn_with_float(module):
+    for name, child in module.named_children():
+        if isinstance(child, nn.BatchNorm2d):
+            new_bn = FloatBatchNorm2d(
+                child.num_features,
+                eps=child.eps,
+                momentum=child.momentum,
+                affine=child.affine,
+                track_running_stats=child.track_running_stats,
+            )
+            if child.affine:
+                new_bn.weight.data.copy_(child.weight.data)
+                new_bn.bias.data.copy_(child.bias.data)
+            if child.running_mean is not None:
+                new_bn.running_mean.data.copy_(child.running_mean.data)
+            if child.running_var is not None:
+                new_bn.running_var.data.copy_(child.running_var.data)
+            if (
+                new_bn.num_batches_tracked is not None
+                and child.num_batches_tracked is not None
+            ):
+                new_bn.num_batches_tracked.data.copy_(
+                    child.num_batches_tracked.data.float()
+                )
+            module._modules[name] = new_bn
+        else:
+            _replace_bn_with_float(child)
+
+
 def _build_resnet34(in_channels, num_classes):
     model = tv_models.resnet34(weights=None)
     model.conv1 = nn.Conv2d(
@@ -83,6 +112,7 @@ def _build_resnet34(in_channels, num_classes):
     )
     model.maxpool = nn.Identity()
     model.fc = nn.Linear(model.fc.in_features, num_classes)
+    _replace_bn_with_float(model)
     return model
 
 
