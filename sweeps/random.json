@@ -8,10 +8,10 @@
       "max": 0.01
     },
     "batch_size": {
-      "values": [16, 32, 64]
+      "values": [32, 64, 128, 256]
     },
     "local_epochs": {
-      "values": [1, 2, 5]
+      "values": [1]
     },
     "optimizer": {
       "values": ["sgd", "adam"]
