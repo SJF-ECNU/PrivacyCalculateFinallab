@@ -102,9 +102,11 @@ def _client_param_digest(state, param_names):
     return digest
 
 
-def _client_init(lr, seed, in_channels, num_classes, optimizer_name, momentum, device):
+def _client_init(
+    lr, seed, in_channels, num_classes, optimizer_name, momentum, device, arch
+):
     torch.manual_seed(seed)
-    model = build_model(in_channels, num_classes)
+    model = build_model(in_channels, num_classes, arch=arch)
     if device == "cuda" and not os.environ.get("CUDA_VISIBLE_DEVICES"):
         os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     if device == "cuda" and not torch.cuda.is_available():
@@ -249,9 +251,10 @@ def _run_personalized(
     early_mode = early_cfg.get("mode", "max")
     early_patience = int(early_cfg.get("patience", 5))
     early_min_delta = float(early_cfg.get("min_delta", 0.0))
+    model_arch = cfg.get("model", {}).get("arch", "convnet")
 
     torch.manual_seed(seed)
-    template_model = build_model(in_channels, num_classes)
+    template_model = build_model(in_channels, num_classes, arch=model_arch)
     personalized_param_names = ()
     debug_param_names = ()
     debug_head = False
@@ -306,7 +309,14 @@ def _run_personalized(
         if gpu_per_client:
             init_kwargs["num_gpus"] = gpu_per_client
         client_states[device_obj] = device_obj(_client_init, **init_kwargs)(
-            lr, client_seed, in_channels, num_classes, optimizer_name, momentum, device
+            lr,
+            client_seed,
+            in_channels,
+            num_classes,
+            optimizer_name,
+            momentum,
+            device,
+            model_arch,
         )
 
     def _evaluate_split(split_data, split_label):

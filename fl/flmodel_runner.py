@@ -84,6 +84,7 @@ def run_fedavg_or_fedprox(
     early_patience = int(early_cfg.get("patience", 5))
     early_min_delta = float(early_cfg.get("min_delta", 0.0))
 
+    model_arch = cfg.get("model", {}).get("arch", "convnet")
     model_def = build_torch_model_def(
         in_channels,
         num_classes,
@@ -92,6 +93,7 @@ def run_fedavg_or_fedprox(
         optimizer_name=optimizer_name,
         momentum=momentum,
         device=device,
+        arch=model_arch,
     )
     use_cuda = device == "cuda" and torch.cuda.is_available()
     print(

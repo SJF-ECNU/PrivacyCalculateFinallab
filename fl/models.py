@@ -1,5 +1,6 @@
 import torch
 from torch import nn, optim
+from torchvision import models as tv_models
 
 from secretflow.ml.nn.core.torch import (
     BaseModule,
@@ -75,8 +76,22 @@ class ConvNet(BaseModule):
         return super().update_metrics(y_pred, y_true)
 
 
-def build_model(in_channels, num_classes):
-    return ConvNet(in_channels, num_classes)
+def _build_resnet34(in_channels, num_classes):
+    model = tv_models.resnet34(weights=None)
+    model.conv1 = nn.Conv2d(
+        in_channels, 64, kernel_size=3, stride=1, padding=1, bias=False
+    )
+    model.maxpool = nn.Identity()
+    model.fc = nn.Linear(model.fc.in_features, num_classes)
+    return model
+
+
+def build_model(in_channels, num_classes, arch="convnet"):
+    if arch == "resnet34":
+        return _build_resnet34(in_channels, num_classes)
+    if arch == "convnet":
+        return ConvNet(in_channels, num_classes)
+    raise ValueError(f"Unsupported model arch: {arch}")
 
 
 def build_torch_model_def(
@@ -87,6 +102,7 @@ def build_torch_model_def(
     optimizer_name="adam",
     momentum=0.0,
     device="cpu",
+    arch="convnet",
 ):
     loss_fn = nn.CrossEntropyLoss
     if optimizer_name == "sgd":
@@ -96,7 +112,7 @@ def build_torch_model_def(
     else:
         raise ValueError(f"Unsupported optimizer: {optimizer_name}")
     def _model_fn():
-        model = build_model(in_channels, num_classes)
+        model = build_model(in_channels, num_classes, arch=arch)
         use_cuda = device == "cuda" and torch.cuda.is_available()
         if use_cuda:
             model = model.to("cuda")

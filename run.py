@@ -15,6 +15,7 @@ from fl.wandb_logger import WandbLogger
 
 def _build_run_name(cfg):
     model = cfg["model"]["name"]
+    arch = cfg["model"].get("arch", "convnet")
     dataset = cfg["data"].get("dataset") or cfg["data"].get("name")
     train_cfg = cfg["train"]
     lr = train_cfg.get("lr")
@@ -25,6 +26,7 @@ def _build_run_name(cfg):
     seed = cfg["data"].get("seed")
     parts = [
         model,
+        arch,
         dataset,
         f"lr{lr:.2e}",
         f"bs{bs}",

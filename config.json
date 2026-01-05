@@ -44,7 +44,7 @@
     }
   },
   "train": {
-    "rounds": 20,
+    "rounds": 100,
     "local_epochs": 1,
     "batch_size": 32,
     "lr": 0.01,
@@ -59,7 +59,7 @@
     "enable": true,
     "metric": "val_acc",
     "mode": "max",
-    "patience": 5,
+    "patience": 2,
     "min_delta": 0.001
   },
   "wandb": {
@@ -75,6 +75,7 @@
     "mu": 0.01
   },
   "model": {
-    "name": "fedavg"
+    "name": "fedavg",
+    "arch": "convnet"
   }
 }

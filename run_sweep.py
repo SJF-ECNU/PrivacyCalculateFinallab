@@ -57,12 +57,13 @@ def _apply_params(cfg, params):
 
 def _build_run_name(cfg, params, index):
     model = cfg["model"]["name"]
+    arch = cfg["model"].get("arch", "convnet")
     dataset = cfg["data"].get("dataset") or cfg["data"].get("name")
     lr = params.get("lr", cfg["train"]["lr"])
     bs = params.get("batch_size", cfg["train"]["batch_size"])
     le = params.get("local_epochs", cfg["train"]["local_epochs"])
     opt = params.get("optimizer", cfg["train"].get("optimizer", "sgd"))
-    return f"{model}-{dataset}-lr{lr:.2e}-bs{bs}-e{le}-{opt}-run{index}"
+    return f"{model}-{arch}-{dataset}-lr{lr:.2e}-bs{bs}-e{le}-{opt}-run{index}"
 
 
 def main():
