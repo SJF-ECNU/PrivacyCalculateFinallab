@@ -11,6 +11,8 @@
     "dataset": "mnist",
     "shuffle": true,
     "seed": 1234,
+    "val_ratio": 0.05,
+    "val_max_samples": 500,
     "datasets": {
       "mnist": {
         "root": "data",
@@ -48,9 +50,26 @@
     "lr": 0.01,
     "aggregate_freq": 1,
     "eval_at_end": true,
+    "eval_interval": 5,
     "device": "cuda",
     "optimizer": "sgd",
     "momentum": 0.0
+  },
+  "early_stop": {
+    "enable": true,
+    "metric": "val_acc",
+    "mode": "max",
+    "patience": 5,
+    "min_delta": 0.001
+  },
+  "wandb": {
+    "enable": true,
+    "project": "federated-final",
+    "entity": null,
+    "mode": "offline",
+    "group": "default",
+    "tags": ["baseline"],
+    "log_per_client": false
   },
   "fedprox": {
     "mu": 0.01

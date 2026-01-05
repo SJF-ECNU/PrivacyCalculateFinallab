@@ -1,0 +1,31 @@
+{
+  "method": "random",
+  "count": 20,
+  "parameters": {
+    "lr": {
+      "distribution": "log_uniform",
+      "min": 0.0001,
+      "max": 0.01
+    },
+    "batch_size": {
+      "values": [16, 32, 64]
+    },
+    "local_epochs": {
+      "values": [1, 2, 5]
+    },
+    "optimizer": {
+      "values": ["sgd", "adam"]
+    },
+    "momentum": {
+      "values": [0.0, 0.9]
+    },
+    "aggregate_freq": {
+      "values": [1, 2, 5]
+    },
+    "mu": {
+      "distribution": "log_uniform",
+      "min": 0.0001,
+      "max": 0.1
+    }
+  }
+}

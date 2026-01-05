@@ -215,11 +215,14 @@ def _run_personalized(
     device_list,
     train_data,
     train_label,
+    val_data,
+    val_label,
     test_data,
     test_label,
     in_channels,
     num_classes,
     strategy,
+    logger=None,
 ):
     train_cfg = cfg["train"]
     rounds = train_cfg["rounds"]
@@ -237,6 +240,15 @@ def _run_personalized(
     runtime_cfg = cfg.get("runtime", {})
     gpu_per_client = runtime_cfg.get("gpu_per_party", 0) if device == "cuda" else 0
     eval_at_end = train_cfg.get("eval_at_end", True)
+    eval_interval = max(int(train_cfg.get("eval_interval", 1)), 1)
+    wandb_cfg = cfg.get("wandb", {})
+    log_per_client = bool(wandb_cfg.get("log_per_client", False))
+    early_cfg = cfg.get("early_stop", {})
+    early_enabled = bool(early_cfg.get("enable", False)) and val_data is not None
+    early_metric = early_cfg.get("metric", "val_acc")
+    early_mode = early_cfg.get("mode", "max")
+    early_patience = int(early_cfg.get("patience", 5))
+    early_min_delta = float(early_cfg.get("min_delta", 0.0))
 
     torch.manual_seed(seed)
     template_model = build_model(in_channels, num_classes)
@@ -296,6 +308,47 @@ def _run_personalized(
         client_states[device_obj] = device_obj(_client_init, **init_kwargs)(
             lr, client_seed, in_channels, num_classes, optimizer_name, momentum, device
         )
+
+    def _evaluate_split(split_data, split_label):
+        if split_data is None or split_label is None:
+            return None, None
+        eval_stats = []
+        for device_obj in device_list:
+            state_obj = client_states[device_obj]
+            data_obj = get_partition(split_data, device_obj)
+            label_obj = get_partition(split_label, device_obj)
+            eval_kwargs = {"num_returns": 1}
+            if gpu_per_client:
+                eval_kwargs["num_gpus"] = gpu_per_client
+            stats_obj = device_obj(_client_evaluate, **eval_kwargs)(
+                state_obj,
+                data_obj,
+                label_obj,
+                shared_param_names,
+                global_params,
+                batch_size,
+            )
+            eval_stats.append(sf.reveal(stats_obj))
+
+        total_loss = sum(s["loss"] for s in eval_stats)
+        total_correct = sum(s["correct"] for s in eval_stats)
+        total = sum(s["total"] for s in eval_stats)
+        avg_loss = total_loss / max(total, 1)
+        avg_acc = total_correct / max(total, 1)
+
+        per_client = {}
+        for device_obj, stats in zip(device_list, eval_stats):
+            name = getattr(device_obj, "party", str(device_obj))
+            count = stats["total"]
+            loss = stats["loss"] / max(count, 1)
+            acc = stats["correct"] / max(count, 1)
+            per_client[name] = {"loss": loss, "accuracy": acc, "n": count}
+        summary = {"loss": avg_loss, "accuracy": avg_acc}
+        return summary, per_client
+
+    best_metric = None
+    bad_rounds = 0
+    stopped_early = False
 
     for r in range(rounds):
         active_devices = list(device_list)
@@ -376,77 +429,137 @@ def _run_personalized(
                         f"after_set={after} after_train={after_train.get(param_name)}"
                     )
 
-    if eval_at_end:
-        eval_stats = []
-        for device_obj in device_list:
-            state_obj = client_states[device_obj]
-            data_obj = get_partition(test_data, device_obj)
-            label_obj = get_partition(test_label, device_obj)
-            eval_kwargs = {"num_returns": 1}
-            if gpu_per_client:
-                eval_kwargs["num_gpus"] = gpu_per_client
-            stats_obj = device_obj(_client_evaluate, **eval_kwargs)(
-                state_obj,
-                data_obj,
-                label_obj,
-                shared_param_names,
-                global_params,
-                batch_size,
-            )
-            eval_stats.append(sf.reveal(stats_obj))
+        should_eval = (r + 1) % eval_interval == 0 or r == rounds - 1
+        if should_eval and val_data is not None and val_label is not None:
+            val_summary, val_per_client = _evaluate_split(val_data, val_label)
+            if val_summary:
+                metrics = {
+                    "round": r + 1,
+                    "val_loss": val_summary["loss"],
+                    "val_acc": val_summary["accuracy"],
+                }
+                if logger:
+                    if log_per_client and val_per_client:
+                        for name, stats in val_per_client.items():
+                            metrics[f"val_acc_{name}"] = stats["accuracy"]
+                            metrics[f"val_loss_{name}"] = stats["loss"]
+                    logger.log(metrics, step=r + 1)
 
-        total_loss = sum(s["loss"] for s in eval_stats)
-        total_correct = sum(s["correct"] for s in eval_stats)
-        total = sum(s["total"] for s in eval_stats)
-        avg_loss = total_loss / max(total, 1)
-        avg_acc = total_correct / max(total, 1)
+                if early_enabled:
+                    if early_metric == "val_loss":
+                        current_metric = val_summary["loss"]
+                    else:
+                        current_metric = val_summary["accuracy"]
+
+                    if best_metric is None:
+                        improved = True
+                    elif early_mode == "min":
+                        improved = current_metric < (best_metric - early_min_delta)
+                    else:
+                        improved = current_metric > (best_metric + early_min_delta)
+
+                    if improved:
+                        best_metric = current_metric
+                        bad_rounds = 0
+                    else:
+                        bad_rounds += 1
+                    if logger:
+                        logger.log(
+                            {
+                                "best_metric": best_metric,
+                                "bad_rounds": bad_rounds,
+                            },
+                            step=r + 1,
+                        )
+                    if bad_rounds >= early_patience:
+                        print(
+                            "[early_stop] "
+                            f"stop at round={r + 1} best={best_metric:.6f}"
+                        )
+                        stopped_early = True
+                        break
+
+    if eval_at_end:
+        test_summary, per_client = _evaluate_split(test_data, test_label)
 
         print("\nFinal evaluation on test set:")
-        print({"loss": avg_loss, "accuracy": avg_acc})
-        per_client = {}
-        for device_obj, stats in zip(device_list, eval_stats):
-            name = getattr(device_obj, "party", str(device_obj))
-            count = stats["total"]
-            loss = stats["loss"] / max(count, 1)
-            acc = stats["correct"] / max(count, 1)
-            per_client[name] = {"loss": loss, "accuracy": acc, "n": count}
+        if test_summary:
+            print({"loss": test_summary["loss"], "accuracy": test_summary["accuracy"]})
+        else:
+            print({"loss": None, "accuracy": None})
         print("Per-client evaluation on test set:")
         print(per_client)
-        summary = {"acc_global_weighted": avg_acc}
+        summary = {"acc_global_weighted": test_summary["accuracy"] if test_summary else 0.0}
         for name, stats in per_client.items():
             summary[f"acc_{name}"] = stats["accuracy"]
             summary[f"n_{name}"] = stats["n"]
         print("Weighted accuracy summary:")
         print(summary)
+        if logger and test_summary:
+            metrics = {
+                "test_loss": test_summary["loss"],
+                "test_acc": test_summary["accuracy"],
+            }
+            if log_per_client and per_client:
+                for name, stats in per_client.items():
+                    metrics[f"test_acc_{name}"] = stats["accuracy"]
+                    metrics[f"test_loss_{name}"] = stats["loss"]
+            logger.log(metrics)
 
 
 def run_fedbn(
-    cfg, device_list, train_data, train_label, test_data, test_label, in_channels, num_classes
+    cfg,
+    device_list,
+    train_data,
+    train_label,
+    val_data,
+    val_label,
+    test_data,
+    test_label,
+    in_channels,
+    num_classes,
+    logger=None,
 ):
     _run_personalized(
         cfg,
         device_list,
         train_data,
         train_label,
+        val_data,
+        val_label,
         test_data,
         test_label,
         in_channels,
         num_classes,
         strategy="fedbn",
+        logger=logger,
     )
 
 
 def run_fedper(
-    cfg, device_list, train_data, train_label, test_data, test_label, in_channels, num_classes
+    cfg,
+    device_list,
+    train_data,
+    train_label,
+    val_data,
+    val_label,
+    test_data,
+    test_label,
+    in_channels,
+    num_classes,
+    logger=None,
 ):
     _run_personalized(
         cfg,
         device_list,
         train_data,
         train_label,
+        val_data,
+        val_label,
         test_data,
         test_label,
         in_channels,
         num_classes,
         strategy="fedper",
+        logger=logger,
     )

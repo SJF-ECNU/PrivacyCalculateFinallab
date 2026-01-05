@@ -101,9 +101,13 @@ def _run_one(cfg, model_name):
     device_list = [device_map[name] for name in runtime_cfg["clients"]]
     server = device_map[runtime_cfg["server"]]
 
-    (train_data, train_label), (test_data, test_label), in_channels, num_classes = (
-        build_fed_dataset(cfg, device_map)
-    )
+    (
+        (train_data, train_label),
+        (val_data, val_label),
+        (test_data, test_label),
+        in_channels,
+        num_classes,
+    ) = build_fed_dataset(cfg, device_map)
 
     print(f"\n=== Running {model_name} ===")
     if model_name in {"fedavg", "fedprox"}:
@@ -113,6 +117,8 @@ def _run_one(cfg, model_name):
             server,
             train_data,
             train_label,
+            val_data,
+            val_label,
             test_data,
             test_label,
             in_channels,
@@ -125,6 +131,8 @@ def _run_one(cfg, model_name):
             device_list,
             train_data,
             train_label,
+            val_data,
+            val_label,
             test_data,
             test_label,
             in_channels,
@@ -136,6 +144,8 @@ def _run_one(cfg, model_name):
             device_list,
             train_data,
             train_label,
+            val_data,
+            val_label,
             test_data,
             test_label,
             in_channels,

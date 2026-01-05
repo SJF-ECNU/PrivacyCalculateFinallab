@@ -10,13 +10,10 @@ from fl.config import SUPPORTED_MODELS, apply_overrides, load_config, parse_args
 from fl.data import SUPPORTED_DATASETS, build_fed_dataset
 from fl.flmodel_runner import run_fedavg_or_fedprox
 from fl.personalized import run_fedbn, run_fedper
+from fl.wandb_logger import WandbLogger
 
 
-def main():
-    args = parse_args()
-    cfg = load_config(args.config)
-    apply_overrides(cfg, args)
-
+def run_experiment(cfg, run_name=None):
     model_name = cfg["model"]["name"]
     data_name = cfg["data"].get("dataset") or cfg["data"].get("name")
     if model_name not in SUPPORTED_MODELS:
@@ -34,6 +31,10 @@ def main():
     np.random.seed(seed)
     torch.manual_seed(seed)
 
+    logger = WandbLogger(
+        cfg, run_name=run_name, extra_config={"model": model_name, "dataset": data_name}
+    )
+
     print(f"The version of SecretFlow: {sf.__version__}")
     def make_pyu(name, gpus):
         try:
@@ -44,69 +45,94 @@ def main():
             return sf.PYU(name, num_gpus=gpus)
         return sf.PYU(name)
 
-    sf.shutdown()
-    runtime_cfg = cfg["runtime"]
-    train_device = cfg["train"].get("device")
-    if train_device == "cuda":
-        cuda_visible = runtime_cfg.get("cuda_visible_devices")
-        if cuda_visible is not None:
-            os.environ["CUDA_VISIBLE_DEVICES"] = str(cuda_visible)
+    try:
+        sf.shutdown()
+        runtime_cfg = cfg["runtime"]
+        train_device = cfg["train"].get("device")
+        if train_device == "cuda":
+            cuda_visible = runtime_cfg.get("cuda_visible_devices")
+            if cuda_visible is not None:
+                os.environ["CUDA_VISIBLE_DEVICES"] = str(cuda_visible)
+            else:
+                os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
+        num_gpus = runtime_cfg.get("num_gpus", 0)
+        sf.init(runtime_cfg["parties"], address=runtime_cfg["address"], num_gpus=num_gpus)
+        gpu_per_party = runtime_cfg.get(
+            "gpu_per_party", num_gpus / max(len(runtime_cfg["clients"]), 1) if num_gpus else 0
+        )
+
+        device_map = {
+            name: make_pyu(name, gpu_per_party if name in runtime_cfg["clients"] else 0)
+            for name in runtime_cfg["parties"]
+        }
+        device_list = [device_map[name] for name in runtime_cfg["clients"]]
+        server = device_map[runtime_cfg["server"]]
+
+        (
+            (train_data, train_label),
+            (val_data, val_label),
+            (test_data, test_label),
+            in_channels,
+            num_classes,
+        ) = build_fed_dataset(cfg, device_map)
+
+        if model_name in {"fedavg", "fedprox"}:
+            run_fedavg_or_fedprox(
+                cfg,
+                device_list,
+                server,
+                train_data,
+                train_label,
+                val_data,
+                val_label,
+                test_data,
+                test_label,
+                in_channels,
+                num_classes,
+                gpu_per_party,
+                logger=logger,
+            )
+        elif model_name == "fedbn":
+            run_fedbn(
+                cfg,
+                device_list,
+                train_data,
+                train_label,
+                val_data,
+                val_label,
+                test_data,
+                test_label,
+                in_channels,
+                num_classes,
+                logger=logger,
+            )
+        elif model_name == "fedper":
+            run_fedper(
+                cfg,
+                device_list,
+                train_data,
+                train_label,
+                val_data,
+                val_label,
+                test_data,
+                test_label,
+                in_channels,
+                num_classes,
+                logger=logger,
+            )
         else:
-            os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
-    num_gpus = runtime_cfg.get("num_gpus", 0)
-    sf.init(runtime_cfg["parties"], address=runtime_cfg["address"], num_gpus=num_gpus)
-    gpu_per_party = runtime_cfg.get(
-        "gpu_per_party", num_gpus / max(len(runtime_cfg["clients"]), 1) if num_gpus else 0
-    )
+            raise ValueError(f"Unsupported model: {model_name}")
+    finally:
+        if logger:
+            logger.finish()
+        sf.shutdown()
 
-    device_map = {
-        name: make_pyu(name, gpu_per_party if name in runtime_cfg["clients"] else 0)
-        for name in runtime_cfg["parties"]
-    }
-    device_list = [device_map[name] for name in runtime_cfg["clients"]]
-    server = device_map[runtime_cfg["server"]]
 
-    (train_data, train_label), (test_data, test_label), in_channels, num_classes = build_fed_dataset(
-        cfg, device_map
-    )
-
-    if model_name in {"fedavg", "fedprox"}:
-        run_fedavg_or_fedprox(
-            cfg,
-            device_list,
-            server,
-            train_data,
-            train_label,
-            test_data,
-            test_label,
-            in_channels,
-            num_classes,
-            gpu_per_party,
-        )
-    elif model_name == "fedbn":
-        run_fedbn(
-            cfg,
-            device_list,
-            train_data,
-            train_label,
-            test_data,
-            test_label,
-            in_channels,
-            num_classes,
-        )
-    elif model_name == "fedper":
-        run_fedper(
-            cfg,
-            device_list,
-            train_data,
-            train_label,
-            test_data,
-            test_label,
-            in_channels,
-            num_classes,
-        )
-    else:
-        raise ValueError(f"Unsupported model: {model_name}")
+def main():
+    args = parse_args()
+    cfg = load_config(args.config)
+    apply_overrides(cfg, args)
+    run_experiment(cfg)
 
 
 if __name__ == "__main__":
