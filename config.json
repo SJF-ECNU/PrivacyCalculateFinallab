@@ -66,11 +66,11 @@
     "enable": true,
     "project": "federated-final",
     "entity": null,
-    "mode": "offline",
+    "mode": "online",
     "group": "default",
     "tags": ["baseline"],
-    "log_per_client": false,
-    "log_train_per_client": true
+    "log_per_client": true,
+    "log_train_per_client": false
   },
   "fedprox": {
     "mu": 0.01
