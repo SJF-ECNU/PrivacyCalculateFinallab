@@ -13,6 +13,24 @@
     "seed": 1234,
     "val_ratio": 0.05,
     "val_max_samples": 500,
+    "partitioning": {
+      "type": "iid",
+      "seed": 1234,
+      "label_skew": {
+        "classes_per_client": 2
+      },
+      "dirichlet": {
+        "alpha": 0.5,
+        "min_size": 1
+      },
+      "feature_shift": {
+        "base_type": "iid",
+        "scale_range": [0.5, 1.5],
+        "shift_range": [-0.2, 0.2],
+        "noise_std": 0.0,
+        "channel_wise": true
+      }
+    },
     "datasets": {
       "mnist": {
         "root": "data",
