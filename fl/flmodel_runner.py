@@ -77,6 +77,9 @@ def run_fedavg_or_fedprox(
     eval_interval = max(int(train_cfg.get("eval_interval", 1)), 1)
     wandb_cfg = cfg.get("wandb", {})
     log_per_client = bool(wandb_cfg.get("log_per_client", False))
+    log_train_per_client = bool(
+        wandb_cfg.get("log_train_per_client", log_per_client)
+    )
     early_cfg = cfg.get("early_stop", {})
     early_enabled = bool(early_cfg.get("enable", False)) and val_data is not None
     early_metric = early_cfg.get("metric", "val_acc")
@@ -188,9 +191,14 @@ def run_fedavg_or_fedprox(
         last_metrics = {}
         for key, values in history_obj.items():
             if isinstance(values, list) and values:
-                last_metrics[f"train_{key}"] = values[-1]
+                value = values[-1]
             elif isinstance(values, (int, float)):
-                last_metrics[f"train_{key}"] = values
+                value = values
+            else:
+                continue
+            if hasattr(value, "item"):
+                value = value.item()
+            last_metrics[key] = value
         return last_metrics
 
     best_metric = None
@@ -206,6 +214,7 @@ def run_fedavg_or_fedprox(
             aggregate_freq=aggregate_freq,
         )
         train_metrics = _history_last_metrics(history)
+        train_loss = _value_from_dict(train_metrics, ["loss"])
 
         should_eval = (r + 1) % eval_interval == 0 or r == rounds - 1
         if should_eval and val_data is not None and val_label is not None:
@@ -219,6 +228,8 @@ def run_fedavg_or_fedprox(
                 metrics["val_acc"] = val_acc
             if val_loss is not None:
                 metrics["val_loss"] = val_loss
+            if train_loss is not None:
+                metrics["train_loss"] = train_loss
             metrics.update(train_metrics)
 
             if logger:
@@ -228,6 +239,12 @@ def run_fedavg_or_fedprox(
                             metrics[f"val_acc_{name}"] = stats["accuracy"]
                         if stats.get("loss") is not None:
                             metrics[f"val_loss_{name}"] = stats["loss"]
+                if log_train_per_client:
+                    _, train_per_client = _evaluate_split(train_data, train_label)
+                    if train_per_client:
+                        for name, stats in train_per_client.items():
+                            if stats.get("loss") is not None:
+                                metrics[f"train_loss_{name}"] = stats["loss"]
                 logger.log(metrics, step=r + 1)
 
             if early_enabled:
@@ -262,7 +279,10 @@ def run_fedavg_or_fedprox(
                         stopped_early = True
                         break
         elif logger and train_metrics:
+            train_metrics = dict(train_metrics)
             train_metrics["round"] = r + 1
+            if train_loss is not None:
+                train_metrics["train_loss"] = train_loss
             logger.log(train_metrics, step=r + 1)
 
     if stopped_early:

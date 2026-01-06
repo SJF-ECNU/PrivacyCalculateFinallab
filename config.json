@@ -69,7 +69,8 @@
     "mode": "offline",
     "group": "default",
     "tags": ["baseline"],
-    "log_per_client": false
+    "log_per_client": false,
+    "log_train_per_client": true
   },
   "fedprox": {
     "mu": 0.01

@@ -134,6 +134,7 @@ def _client_train_one_round(
     optimizer_name,
     momentum,
     debug_param_names=None,
+    return_stats=False,
 ):
     model = state["model"]
     device = state.get("device", "cpu")
@@ -150,6 +151,8 @@ def _client_train_one_round(
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=False)
 
     model.train()
+    loss_sum = 0.0
+    count = 0
     for _ in range(epochs):
         for xb, yb in loader:
             xb = xb.to(device)
@@ -159,11 +162,27 @@ def _client_train_one_round(
             loss = F.cross_entropy(logits, yb)
             loss.backward()
             optimizer.step()
+            batch_size_actual = yb.shape[0]
+            loss_sum += loss.item() * batch_size_actual
+            count += batch_size_actual
 
     state["optimizer"] = optimizer
     if debug_param_names:
         debug_info["after_train"] = _client_param_digest(state, debug_param_names)
+        if return_stats:
+            return (
+                state,
+                _get_named_params(model, shared_param_names),
+                debug_info,
+                {"loss_sum": loss_sum, "count": count},
+            )
         return state, _get_named_params(model, shared_param_names), debug_info
+    if return_stats:
+        return (
+            state,
+            _get_named_params(model, shared_param_names),
+            {"loss_sum": loss_sum, "count": count},
+        )
     return state, _get_named_params(model, shared_param_names)
 
 
@@ -252,6 +271,7 @@ def _run_personalized(
     early_patience = int(early_cfg.get("patience", 5))
     early_min_delta = float(early_cfg.get("min_delta", 0.0))
     model_arch = cfg.get("model", {}).get("arch", "convnet")
+    want_train_stats = logger is not None
 
     torch.manual_seed(seed)
     template_model = build_model(in_channels, num_classes, arch=model_arch)
@@ -366,16 +386,17 @@ def _run_personalized(
 
         client_params = []
         debug_infos = {}
+        train_stats = {}
         for device_obj in active_devices:
             state_obj = client_states[device_obj]
             data_obj = get_partition(train_data, device_obj)
             label_obj = get_partition(train_label, device_obj)
 
             if debug_head and debug_param_names:
-                train_kwargs = {"num_returns": 3}
+                train_kwargs = {"num_returns": 4 if want_train_stats else 3}
                 if gpu_per_client:
                     train_kwargs["num_gpus"] = gpu_per_client
-                state_obj, params_obj, debug_obj = device_obj(
+                train_result = device_obj(
                     _client_train_one_round, **train_kwargs
                 )(
                     state_obj,
@@ -389,13 +410,19 @@ def _run_personalized(
                     optimizer_name,
                     momentum,
                     debug_param_names,
+                    want_train_stats,
                 )
+                if want_train_stats:
+                    state_obj, params_obj, debug_obj, stats_obj = train_result
+                    train_stats[device_obj] = sf.reveal(stats_obj)
+                else:
+                    state_obj, params_obj, debug_obj = train_result
                 debug_infos[device_obj] = sf.reveal(debug_obj)
             else:
-                train_kwargs = {"num_returns": 2}
+                train_kwargs = {"num_returns": 3 if want_train_stats else 2}
                 if gpu_per_client:
                     train_kwargs["num_gpus"] = gpu_per_client
-                state_obj, params_obj = device_obj(_client_train_one_round, **train_kwargs)(
+                train_result = device_obj(_client_train_one_round, **train_kwargs)(
                     state_obj,
                     data_obj,
                     label_obj,
@@ -406,9 +433,26 @@ def _run_personalized(
                     lr,
                     optimizer_name,
                     momentum,
+                    None,
+                    want_train_stats,
                 )
+                if want_train_stats:
+                    state_obj, params_obj, stats_obj = train_result
+                    train_stats[device_obj] = sf.reveal(stats_obj)
+                else:
+                    state_obj, params_obj = train_result
             client_states[device_obj] = state_obj
             client_params.append(sf.reveal(params_obj))
+
+        train_loss = None
+        if want_train_stats:
+            total_loss = 0.0
+            total_count = 0
+            for stats in train_stats.values():
+                total_loss += stats.get("loss_sum", 0.0)
+                total_count += stats.get("count", 0)
+            if total_count > 0:
+                train_loss = total_loss / total_count
 
         round_weights = [weight_map[device_obj] for device_obj in active_devices]
         weight_sum = sum(round_weights)
@@ -448,11 +492,19 @@ def _run_personalized(
                     "val_loss": val_summary["loss"],
                     "val_acc": val_summary["accuracy"],
                 }
+                if train_loss is not None:
+                    metrics["train_loss"] = train_loss
                 if logger:
                     if log_per_client and val_per_client:
                         for name, stats in val_per_client.items():
                             metrics[f"val_acc_{name}"] = stats["accuracy"]
                             metrics[f"val_loss_{name}"] = stats["loss"]
+                    if log_per_client and train_stats:
+                        for device_obj, stats in train_stats.items():
+                            name = getattr(device_obj, "party", str(device_obj))
+                            count = stats.get("count", 0)
+                            if count > 0:
+                                metrics[f"train_loss_{name}"] = stats["loss_sum"] / count
                     logger.log(metrics, step=r + 1)
 
                 if early_enabled:
@@ -488,6 +540,15 @@ def _run_personalized(
                         )
                         stopped_early = True
                         break
+        elif logger and train_loss is not None:
+            metrics = {"round": r + 1, "train_loss": train_loss}
+            if log_per_client and train_stats:
+                for device_obj, stats in train_stats.items():
+                    name = getattr(device_obj, "party", str(device_obj))
+                    count = stats.get("count", 0)
+                    if count > 0:
+                        metrics[f"train_loss_{name}"] = stats["loss_sum"] / count
+            logger.log(metrics, step=r + 1)
 
     if eval_at_end:
         test_summary, per_client = _evaluate_split(test_data, test_label)
